@@ -46,7 +46,7 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplif
 #[launch]
 fn rocket() -> _ {
 
-    // Pull the Docker image as part of project setup
+    // Pull required docker images
     if let Err(err) = tokio::runtime::Runtime::new().unwrap()
             .block_on(
                 pull_docker_image_if_not_exists(WORDPRESS_IMAGE)
