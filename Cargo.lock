@@ -1470,6 +1470,7 @@ dependencies = [
  "rocket_codegen",
  "rocket_http",
  "serde",
+ "serde_json",
  "state",
  "tempfile",
  "time",
@@ -2407,10 +2408,12 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "config",
+ "futures",
  "log",
  "rocket",
- "serde",
+ "serde_json",
  "shiplift",
+ "tokio",
 ]
 
 [[package]]
