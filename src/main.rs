@@ -6,6 +6,9 @@ mod docker;
 use shiplift::{Docker, PullOptions, ImageListOptions};
 use futures::stream::StreamExt;
 
+const NETWORK_NAME: &str = "wp-network";
+const WORDPRESS_IMAGE: &str = "wordpress:latest";
+
 async fn image_exists(image_name: &str) -> bool {
     let docker = Docker::new();
     let options = ImageListOptions::default(); // Remove .all()
@@ -42,14 +45,16 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplif
 
 #[launch]
 fn rocket() -> _ {
-    // Specify the image name
-    let image_name = "wordpress:latest";
 
     // Pull the Docker image as part of project setup
-    if let Err(err) = tokio::runtime::Runtime::new().unwrap().block_on(pull_docker_image_if_not_exists(image_name)) {
+    if let Err(err) = tokio::runtime::Runtime::new().unwrap()
+            .block_on(
+                pull_docker_image_if_not_exists(WORDPRESS_IMAGE)
+            )
+    {
         eprintln!("Error pulling Docker image: {:?}", err);
         std::process::exit(1);
     }
 
-    rocket::build().mount("/api", api::routes())
+    rocket::build().mount("/api", api::routes::routes())
 }

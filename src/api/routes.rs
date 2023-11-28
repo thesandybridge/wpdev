@@ -3,12 +3,10 @@ use rocket::serde::json::Json;
 use crate::docker::manager; // Adjust this import based on your project structure
 use shiplift::Docker;
 
-const NETWORK_NAME: &str = "wp-network";
-
 #[get("/containers")]
 pub async fn list_docker_containers() -> Result<Json<Vec<String>>, String> {
     let docker = Docker::new(); // Instantiate Docker here
-    match manager::list_all_containers(&docker, NETWORK_NAME).await {
+    match manager::list_all_containers(&docker, crate::NETWORK_NAME).await {
         Ok(containers) => Ok(Json(containers)),
         Err(e) => Err(e.to_string()),
     }
@@ -24,7 +22,7 @@ pub async fn create_wordpress_container() -> Result<Json<String>, String> {
 }
 
 #[post("/containers/<container_id>/start")]
-pub async fn start_container(container_id: String) -> Result<Json<String>, String> {
+pub async fn start_container(container_id: &str) -> Result<Json<&str>, String> {
     let docker = Docker::new();
     match manager::start_container(&docker, &container_id).await {
         Ok(_) => Ok(Json(container_id)),
@@ -33,7 +31,7 @@ pub async fn start_container(container_id: String) -> Result<Json<String>, Strin
 }
 
 #[post("/containers/<container_id>/stop")]
-pub async fn stop_container(container_id: String) -> Result<Json<String>, String> {
+pub async fn stop_container(container_id: &str) -> Result<Json<&str>, String> {
     let docker = Docker::new();
     match manager::stop_container(&docker, &container_id).await {
         Ok(_) => Ok(Json(container_id)),
@@ -42,7 +40,7 @@ pub async fn stop_container(container_id: String) -> Result<Json<String>, String
 }
 
 #[post("/containers/<container_id>/restart")]
-pub async fn restart_container(container_id: String) -> Result<Json<String>, String> {
+pub async fn restart_container(container_id: &str) -> Result<Json<&str>, String> {
     let docker = Docker::new();
     match manager::restart_container(&docker, &container_id).await {
         Ok(_) => Ok(Json(container_id)),
@@ -51,7 +49,7 @@ pub async fn restart_container(container_id: String) -> Result<Json<String>, Str
 }
 
 #[post("/containers/<container_id>/delete")]
-pub async fn delete_container(container_id: String) -> Result<Json<String>, String> {
+pub async fn delete_container(container_id: &str) -> Result<Json<&str>, String> {
     let docker = Docker::new();
     match manager::delete_container(&docker, &container_id).await {
         Ok(_) => Ok(Json(container_id)),
@@ -62,7 +60,7 @@ pub async fn delete_container(container_id: String) -> Result<Json<String>, Stri
 #[post("/containers/stop_all")]
 pub async fn stop_all_containers() -> Result<(), String> {
     let docker = Docker::new();
-    match manager::stop_all_containers(&docker, NETWORK_NAME).await {
+    match manager::stop_all_containers(&docker, crate::NETWORK_NAME).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e.to_string()),
     }

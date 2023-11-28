@@ -34,12 +34,10 @@ pub async fn create_network_if_not_exists(docker: &Docker, network_name: &str) -
 }
 
 pub async fn create_wordpress_container(docker: &Docker) -> Result<String, shiplift::Error> {
-    let network_name = "wp-network";
+    create_network_if_not_exists(&docker, crate::NETWORK_NAME).await?;
 
-    create_network_if_not_exists(&docker, network_name).await?;
-
-    let options = ContainerOptions::builder("wordpress:latest")
-        .network_mode("wp-network")
+    let options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
         .build();
 
     match docker.containers().create(&options).await {
