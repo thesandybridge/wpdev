@@ -3,11 +3,12 @@ use rocket::serde::json::Json;
 use crate::docker::manager;
 use shiplift::Docker;
 use uuid::Uuid;
+use std::collections::HashMap;
 
 #[get("/containers")]
-pub async fn list_instances() -> Result<Json<Vec<String>>, String> {
+pub async fn list_instances() -> Result<Json<HashMap<String, crate::Instance>>, String> {
     let docker = Docker::new(); // Instantiate Docker here
-    match manager::list_all_containers(&docker, crate::NETWORK_NAME).await {
+    match manager::list_all_instances(&docker, crate::NETWORK_NAME).await {
         Ok(instances) => Ok(Json(instances)),
         Err(e) => Err(e.to_string()),
     }

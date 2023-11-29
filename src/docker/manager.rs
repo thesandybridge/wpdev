@@ -66,6 +66,32 @@ pub async fn create_instance(
     }
 }
 
+pub async fn list_all_instances(docker: &Docker, network_name: &str) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
+    let containers = docker.containers().list(&ContainerListOptions::builder().all().build()).await?;
+    let mut instances: HashMap<String, crate::Instance> = HashMap::new();
+
+    for container in containers {
+        let details = docker.containers().get(&container.id).inspect().await?;
+        let network_settings = &details.network_settings;
+
+        if let Some(labels) = &details.config.labels {
+            if network_settings.networks.contains_key(network_name) {
+                if let Some(instance_label) = labels.get("instance") {
+                    instances.entry(instance_label.to_string())
+                        .or_insert_with(|| crate::Instance {
+                            container_ids: Vec::new(),
+                            uuid: "".to_string()
+                        })
+                        .container_ids.push(container.id);
+                }
+            }
+        }
+    }
+
+    Ok(instances)
+}
+
+
 pub async fn list_all_containers(docker: &Docker, network_name: &str) -> Result<Vec<String>, shiplift::Error> {
     // Fetch all containers
     let containers = docker
