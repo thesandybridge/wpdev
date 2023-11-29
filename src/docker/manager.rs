@@ -85,7 +85,7 @@ pub async fn list_all_instances(docker: &Docker, network_name: &str) -> Result<H
                     instances.entry(instance_label.to_string())
                         .or_insert_with(|| crate::Instance {
                             container_ids: Vec::new(),
-                            uuid: "".to_string()
+                            uuid: instance_label.to_string()
                         })
                         .container_ids.push(container.id);
                 }
@@ -113,7 +113,7 @@ pub async fn list_running_instances(docker: &Docker, network_name: &str) -> Resu
                     instances.entry(instance_label.to_string())
                         .or_insert_with(|| crate::Instance {
                             container_ids: Vec::new(),
-                            uuid: "".to_string()
+                            uuid: instance_label.to_string()
                         })
                         .container_ids.push(container.id);
                 }
