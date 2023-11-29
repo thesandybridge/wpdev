@@ -46,47 +46,94 @@ pub async fn create_instance() -> Result<Json<crate::Instance>, String> {
 }
 
 #[post("/instances/<instance_uuid>/start")]
-pub async fn start_instance(instance_uuid: &str) -> Result<Json<&str>, String> {
+pub async fn start_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
     let docker = Docker::new();
-    match manager::start_all_containers_in_instance(&docker, crate::NETWORK_NAME, instance_uuid).await {
+    match manager::instance_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        &instance_uuid,
+        manager::ContainerOperation::Start,
+        "started"
+        ).await
+    {
         Ok(_) => Ok(Json(instance_uuid)),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(e),
     }
 }
 
 #[post("/instances/<instance_uuid>/stop")]
-pub async fn stop_instance(instance_uuid: &str) -> Result<Json<&str>, String> {
+pub async fn stop_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
     let docker = Docker::new();
-    match manager::stop_all_containers_in_instance(&docker, crate::NETWORK_NAME, &instance_uuid).await {
+    match manager::instance_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        &instance_uuid,
+        manager::ContainerOperation::Stop,
+        "stopped"
+        ).await
+    {
         Ok(_) => Ok(Json(instance_uuid)),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(e),
     }
 }
 
 #[post("/instances/<instance_uuid>/restart")]
-pub async fn restart_instance(instance_uuid: &str) -> Result<Json<&str>, String> {
+pub async fn restart_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
     let docker = Docker::new();
-    match manager::restart_all_containers_in_instance(&docker, crate::NETWORK_NAME, &instance_uuid).await {
+    match manager::instance_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        &instance_uuid,
+        manager::ContainerOperation::Restart,
+        "restarted"
+        ).await
+    {
         Ok(_) => Ok(Json(instance_uuid)),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(e),
     }
 }
 
 #[post("/instances/<instance_uuid>/delete")]
-pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, String> {
+pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
     let docker = Docker::new();
-    match manager::delete_all_containers_in_instance(&docker, crate::NETWORK_NAME, &instance_uuid).await {
+    match manager::instance_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        &instance_uuid,
+        manager::ContainerOperation::Delete,
+        "deleted"
+        ).await
+    {
         Ok(_) => Ok(Json(instance_uuid)),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(e),
     }
 }
 
 #[post("/instances/stop_all")]
-pub async fn stop_all_instances() -> Result<(), String> {
+pub async fn stop_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::stop_all_instances(&docker, crate::NETWORK_NAME).await {
+    match manager::instances_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        manager::ContainerOperation::Stop,
+        "stopped"
+    ).await {
         Ok(_) => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(e),
+    }
+}
+
+#[post("/instances/purge")]
+pub async fn delete_all_instance() -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match manager::instances_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        manager::ContainerOperation::Delete,
+        "deleted"
+    ).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
@@ -99,6 +146,7 @@ pub fn routes() -> Vec<rocket::Route> {
         start_instance,
         restart_instance,
         stop_instance,
+        delete_all_instance,
     ]
 }
 

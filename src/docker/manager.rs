@@ -4,6 +4,16 @@ use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
 use log::{info, error};
 use std::collections::HashMap;
+use rocket::http::Status;
+use rocket::response::status::Custom;
+
+#[derive(Clone)]
+pub enum ContainerOperation {
+    Start,
+    Stop,
+    Restart,
+    Delete
+}
 
 /// Creates a Docker Network if it doesn't already exist.
 ///
@@ -78,6 +88,13 @@ pub async fn create_instance(
     }
 }
 
+/// List all instances that are currently running.
+///
+/// # Arguments
+///
+/// * `docker` -
+/// * `network_name` - [TODO:description]
+/// * `containers` - [TODO:description]
 async fn list_instances(
     docker: &Docker,
     network_name: &str,
@@ -106,6 +123,12 @@ async fn list_instances(
     Ok(instances)
 }
 
+/// List all instances.
+///
+/// # Arguments
+///
+/// * `docker` - [TODO:description]
+/// * `network_name` - [TODO:description]
 pub async fn list_all_instances(
     docker: &Docker,
     network_name: &str
@@ -119,6 +142,12 @@ pub async fn list_all_instances(
     list_instances(docker, network_name, containers).await
 }
 
+/// List all instances that are currently running.
+///
+/// # Arguments
+///
+/// * `docker` - [TODO:description]
+/// * `network_name` - [TODO:description]
 pub async fn list_running_instances(
     docker: &Docker,
     network_name: &str
@@ -130,117 +159,62 @@ pub async fn list_running_instances(
    list_instances(docker, network_name, containers).await
 }
 
-pub async fn start_all_containers_in_instance(
+pub async fn instance_handler(
     docker: &Docker,
     network_name: &str,
-    instance_uuid: &str
-) -> Result<(), shiplift::Error> {
-    let instances = list_all_instances(docker, network_name).await?;
+    instance_uuid: &str,
+    operation: ContainerOperation,
+    success_message: &str,
+) -> Result<(), Custom<String>> {
+    let instances = list_all_instances(docker, network_name).await
+        .map_err(|e| Custom(Status::InternalServerError, format!("Error listing instances: {}", e)))?;
 
     if let Some(instance) = instances.get(instance_uuid) {
         for container_id in &instance.container_ids {
-            match docker.containers().get(container_id).start().await {
-                Ok(container) => {
-                    info!("{} container successfully started: {:?}", container_id, container);
-                    Ok(())
+            match operation {
+                ContainerOperation::Start => {
+                    docker.containers().get(container_id).start().await
+                        .map_err(|err| Custom(Status::InternalServerError, format!("Error starting container {}: {}", container_id, err)))?;
                 }
-                Err(err) => {
-                    error!("Error starting {} container: {:?}", container_id, err);
-                    Err(err)
+                ContainerOperation::Stop => {
+                    docker.containers().get(container_id).stop(None).await
+                        .map_err(|err| Custom(Status::InternalServerError, format!("Error stopping container {}: {}", container_id, err)))?;
                 }
-            }?;
+                ContainerOperation::Restart => {
+                    docker.containers().get(container_id).restart(None).await
+                        .map_err(|err| Custom(Status::InternalServerError, format!("Error restarting container {}: {}", container_id, err)))?;
+                }
+                ContainerOperation::Delete => {
+                    docker.containers().get(container_id).delete().await
+                        .map_err(|err| Custom(Status::InternalServerError, format!("Error restarting container {}: {}", container_id, err)))?;
+                }
+            }
+            info!("{} container successfully {}", container_id, success_message);
         }
+        Ok(())
+    } else {
+        Err(Custom(Status::NotFound, format!("Instance with UUID {} not found", instance_uuid)))
     }
-
-    Ok(())
 }
 
-pub async fn stop_all_containers_in_instance(
+pub async fn instances_handler(
     docker: &Docker,
     network_name: &str,
-    instance_uuid: &str
-) -> Result<(), shiplift::Error> {
-    let instances = list_running_instances(docker, network_name).await?;
+    operation: ContainerOperation,
+    success_message: &str,
+) -> Result<(), Custom<String>> {
+    let instances = list_all_instances(docker, network_name).await
+        .map_err(|e| Custom(Status::InternalServerError, format!("Error listing instances: {}", e)))?;
 
-    if let Some(instance) = instances.get(instance_uuid) {
-        for container_id in &instance.container_ids {
-            match docker.containers().get(container_id).stop(None).await {
-                Ok(container) => {
-                    info!("{} container successfully stopped: {:?}", container_id, container);
-                    Ok(())
-                }
-                Err(err) => {
-                    error!("Error stopping {} container: {:?}", container_id, err);
-                    Err(err)
-                }
-            }?;
-        }
+    for (_, instance) in instances.iter() {
+        instance_handler(
+            docker,
+            network_name,
+            &instance.uuid,
+            operation.clone(),
+            success_message
+        ).await?;
     }
 
     Ok(())
 }
-
-pub async fn delete_all_containers_in_instance(
-    docker: &Docker,
-    network_name: &str,
-    instance_uuid: &str
-) -> Result<(), shiplift::Error> {
-    let instances = list_all_instances(docker, network_name).await?;
-
-    if let Some(instance) = instances.get(instance_uuid) {
-        for container_id in &instance.container_ids {
-            match docker.containers().get(container_id).delete().await {
-                Ok(container) => {
-                    info!("{} container successfully deleted: {:?}", container_id, container);
-                    Ok(())
-                }
-                Err(err) => {
-                    error!("Error deleting {} container: {:?}", container_id, err);
-                    Err(err)
-                }
-            }?;
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn restart_all_containers_in_instance(
-    docker: &Docker,
-    network_name: &str,
-    instance_uuid: &str
-) -> Result<(), shiplift::Error> {
-    let instances = list_all_instances(docker, network_name).await?;
-
-    if let Some(instance) = instances.get(instance_uuid) {
-        for container_id in &instance.container_ids {
-            match docker.containers().get(container_id).restart(None).await {
-                Ok(container) => {
-                    info!("{} container successfully restarted: {:?}", container_id, container);
-                    Ok(())
-                }
-                Err(err) => {
-                    error!("Error restarting {} container: {:?}", container_id, err);
-                    Err(err)
-                }
-            }?;
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn stop_all_instances(
-    docker: &Docker,
-    network_name: &str
-) -> Result<(), shiplift::Error> {
-    let running_instances = list_running_instances(docker, network_name).await?;
-
-    for (_, instance) in running_instances.iter() {
-        stop_all_containers_in_instance(docker, network_name, &instance.uuid).await?;
-    }
-
-    Ok(())
-}
-
-

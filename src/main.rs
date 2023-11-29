@@ -12,6 +12,17 @@ const WORDPRESS_IMAGE: &str = "wordpress:latest";
 const NGINX_IMAGE: &str = "nginx:latest";
 const MYSQL_IMAGE: &str = "mysql:latest";
 
+/// Check if a Docker image exists locally.
+///
+/// # Arguments
+///
+/// * `image_name` - The name of the image to check for.
+///
+/// # Examples
+///
+/// ```
+/// let image_exists = image_exists("wordpress:latest").await;
+/// ```
 async fn image_exists(image_name: &str) -> bool {
     let docker = Docker::new();
     let options = ImageListOptions::default();
@@ -21,6 +32,29 @@ async fn image_exists(image_name: &str) -> bool {
     })
 }
 
+
+/// Pull a Docker image if it does not already exist locally.
+///
+/// # Arguments
+///
+/// * `image_name` - The name of the image to pull.
+///
+/// # Errors
+///
+/// * If the image fails to pull.
+/// * If the image is not found.
+/// * If the image is not valid.
+/// * If the image is not authorized.
+/// * If the image is not available.
+/// * If the image is not ready.
+/// * If the image is not a Docker image.
+///
+///
+/// # Examples
+///
+/// ```
+/// pull_docker_image_if_not_exists("wordpress:latest").await;
+/// ```
 async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
     if !image_exists(image_name).await {
         let docker = Docker::new();

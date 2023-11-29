@@ -10,6 +10,40 @@ macro_rules! create_container {
     };
 }
 
+#[macro_export]
+macro_rules! handle_docker_operation {
+    ($docker:expr, $container_id:expr, start) => {{
+        async move {
+            $docker.containers()
+                   .get($container_id)
+                   .start()
+                   .await
+                   .map_err(|err|
+                       rocket::response::status::Custom(
+                           rocket::http::Status::InternalServerError,
+                           format!("Error starting container {}: {}", $container_id, err)
+                       )
+                   )
+        }
+    }};
+    ($docker:expr, $container_id:expr, stop) => {{
+        async move {
+            $docker.containers()
+                   .get($container_id)
+                   .stop(None)
+                   .await
+                   .map_err(|err|
+                       rocket::response::status::Custom(
+                           rocket::http::Status::InternalServerError,
+                           format!("Error stopping container {}: {}", $container_id, err)
+                       )
+                   )
+        }
+    }};
+}
+
+
+
 #[derive(Serialize, Deserialize)]
 pub struct Instance {
     pub container_ids: Vec<String>,
