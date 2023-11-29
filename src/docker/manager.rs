@@ -67,7 +67,12 @@ pub async fn create_instance(
 }
 
 pub async fn list_all_instances(docker: &Docker, network_name: &str) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
-    let containers = docker.containers().list(&ContainerListOptions::builder().all().build()).await?;
+    let containers = docker
+        .containers()
+        .list(&ContainerListOptions::builder()
+              .all()
+              .build())
+        .await?;
     let mut instances: HashMap<String, crate::Instance> = HashMap::new();
 
     for container in containers {
@@ -91,77 +96,96 @@ pub async fn list_all_instances(docker: &Docker, network_name: &str) -> Result<H
     Ok(instances)
 }
 
-
-pub async fn list_all_containers(docker: &Docker, network_name: &str) -> Result<Vec<String>, shiplift::Error> {
-    // Fetch all containers
-    let containers = docker
-        .containers()
-        .list(&ContainerListOptions::builder().all().build())
-        .await?;
-
-    let mut filtered_containers = Vec::new();
-
-    for container in containers {
-        let details = docker.containers().get(&container.id).inspect().await?;
-        // Directly access network_settings as it's not an Option
-        let network_settings = &details.network_settings;
-
-        // Check if network_settings contain the network_name
-        if network_settings.networks.contains_key(network_name) {
-            filtered_containers.push(container.id);
-        }
-    }
-
-    Ok(filtered_containers)
-}
-
-pub async fn list_running_containers(docker: &Docker, network_name: &str) -> Result<Vec<String>, shiplift::Error> {
-    // Fetch all containers
+pub async fn list_running_instances(docker: &Docker, network_name: &str) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::default())
         .await?;
-
-    let mut filtered_containers = Vec::new();
+    let mut instances: HashMap<String, crate::Instance> = HashMap::new();
 
     for container in containers {
         let details = docker.containers().get(&container.id).inspect().await?;
-        // Directly access network_settings as it's not an Option
         let network_settings = &details.network_settings;
 
-        // Check if network_settings contain the network_name
-        if network_settings.networks.contains_key(network_name) {
-            filtered_containers.push(container.id);
+        if let Some(labels) = &details.config.labels {
+            if network_settings.networks.contains_key(network_name) {
+                if let Some(instance_label) = labels.get("instance") {
+                    instances.entry(instance_label.to_string())
+                        .or_insert_with(|| crate::Instance {
+                            container_ids: Vec::new(),
+                            uuid: "".to_string()
+                        })
+                        .container_ids.push(container.id);
+                }
+            }
         }
     }
 
-    Ok(filtered_containers)
+    Ok(instances)
 }
 
-pub async fn start_container(docker: &Docker, container_id: &str) -> Result<(), shiplift::Error> {
-    docker.containers().get(container_id).start().await?;
-    Ok(())
-}
+pub async fn start_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+    let instances = list_all_instances(docker, network_name).await?;
 
-pub async fn stop_container(docker: &Docker, container_id: &str) -> Result<(), shiplift::Error> {
-    docker.containers().get(container_id).stop(None).await?;
-    Ok(())
-}
-
-pub async fn stop_all_containers(docker: &Docker, network_name: &str) -> Result<(), shiplift::Error> {
-    let running_containers = list_running_containers(docker, network_name).await?;
-    for container_id in running_containers {
-        docker.containers().get(container_id).stop(None).await?;
+    if let Some(instance) = instances.get(instance_uuid) {
+        for container_id in &instance.container_ids {
+            // Start each container in the specified instance
+            docker.containers().get(container_id).start().await?;
+        }
     }
+
     Ok(())
 }
 
-pub async fn restart_container(docker: &Docker, container_id: &str) -> Result<(), shiplift::Error> {
-    docker.containers().get(container_id).restart(None).await?;
+pub async fn stop_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+    let instances = list_all_instances(docker, network_name).await?;
+
+    if let Some(instance) = instances.get(instance_uuid) {
+        for container_id in &instance.container_ids {
+            // Start each container in the specified instance
+            docker.containers().get(container_id).stop(None).await?;
+        }
+    }
+
     Ok(())
 }
 
-pub async fn delete_container(docker: &Docker, container_id: &str) -> Result<(), shiplift::Error> {
-    docker.containers().get(container_id).delete().await?;
+pub async fn delete_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+    let instances = list_all_instances(docker, network_name).await?;
+
+    if let Some(instance) = instances.get(instance_uuid) {
+        for container_id in &instance.container_ids {
+            // Start each container in the specified instance
+            docker.containers().get(container_id).delete().await?;
+        }
+    }
+
     Ok(())
 }
+
+pub async fn restart_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+    let instances = list_all_instances(docker, network_name).await?;
+
+    if let Some(instance) = instances.get(instance_uuid) {
+        for container_id in &instance.container_ids {
+            // Start each container in the specified instance
+            docker.containers().get(container_id).restart(None).await?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn stop_all_instances(docker: &Docker, network_name: &str) -> Result<(), shiplift::Error> {
+    let running_instances = list_running_instances(docker, network_name).await?;
+
+    for (_, instance) in running_instances.iter() {
+        for container_id in &instance.container_ids {
+            docker.containers().get(container_id).stop(None).await?;
+        }
+    }
+
+    Ok(())
+}
+
+

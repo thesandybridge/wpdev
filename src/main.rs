@@ -27,18 +27,33 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplif
         let docker = Docker::new();
         let mut pull_options = PullOptions::builder();
         pull_options.image(image_name);
-        let pull_stream = docker.images().pull(&pull_options.build());
+        let mut pull_stream = docker.images().pull(&pull_options.build());
 
-        pull_stream
-            .for_each(|result| async {
-                match result {
-                    Ok(value) => println!("Pulled image: {:?}", value),
-                    Err(err) => eprintln!("Error pulling image: {:?}", err),
+        let mut success = false;
+        let mut error_message = None;
+
+        // Process each event in the pull stream
+        while let Some(result) = pull_stream.next().await {
+            match result {
+                Ok(_) => {
+                    // Image successfully pulled
+                    success = true;
                 }
-            })
-            .await;
+                Err(err) => {
+                    error_message = Some(format!("Error pulling image: {:?}", err));
+                }
+            }
+        }
 
-        println!("Image {} is now available locally.", image_name);
+        if success {
+            println!("Image {} is now available locally.", image_name);
+        } else {
+            if let Some(message) = error_message {
+                eprintln!("{}", message);
+            } else {
+                eprintln!("Failed to pull image {}.", image_name);
+            }
+        }
     } else {
         println!("Image {} is already available locally.", image_name);
     }
@@ -50,13 +65,17 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplif
 #[launch]
 fn rocket() -> _ {
 
-    // Pull required docker images
     if let Err(err) = tokio::runtime::Runtime::new().unwrap()
             .block_on(
-                pull_docker_image_if_not_exists(WORDPRESS_IMAGE)
+                async {
+                    pull_docker_image_if_not_exists(WORDPRESS_IMAGE).await?;
+                    pull_docker_image_if_not_exists(NGINX_IMAGE).await?;
+                    pull_docker_image_if_not_exists(MYSQL_IMAGE).await?;
+                    Ok::<_, shiplift::errors::Error>(())
+                }
             )
     {
-        eprintln!("Error pulling Docker image: {:?}", err);
+        eprintln!("Error pulling Docker images: {:?}", err);
         std::process::exit(1);
     }
 
