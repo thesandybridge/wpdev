@@ -109,6 +109,34 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<S
     }
 }
 
+#[post("/instances/start_all")]
+pub async fn start_all_instances() -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match manager::instances_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        manager::ContainerOperation::Start,
+        "started"
+    ).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[post("/instances/restart_all")]
+pub async fn restart_all_instances() -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match manager::instances_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        manager::ContainerOperation::Restart,
+        "restart"
+    ).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 #[post("/instances/stop_all")]
 pub async fn stop_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
@@ -141,12 +169,14 @@ pub fn routes() -> Vec<rocket::Route> {
     routes![
         list_instances,
         create_instance,
-        stop_all_instances,
         delete_instance,
         start_instance,
         restart_instance,
         stop_instance,
         delete_all_instance,
+        stop_all_instances,
+        restart_all_instances,
+        start_all_instances,
     ]
 }
 
