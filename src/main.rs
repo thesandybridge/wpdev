@@ -14,14 +14,13 @@ const MYSQL_IMAGE: &str = "mysql:latest";
 
 async fn image_exists(image_name: &str) -> bool {
     let docker = Docker::new();
-    let options = ImageListOptions::default(); // Remove .all()
+    let options = ImageListOptions::default();
     let images = docker.images().list(&options).await.unwrap();
     images.iter().any(|image| {
         image.repo_tags.iter().any(|tag| tag.contains(&image_name.to_string())) // Convert image_name to String
     })
 }
 
-// Function to pull a Docker image
 async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
     if !image_exists(image_name).await {
         let docker = Docker::new();

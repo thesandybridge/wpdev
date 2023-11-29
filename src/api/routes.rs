@@ -1,16 +1,29 @@
 use rocket::get;
 use rocket::serde::json::Json;
+use rocket::http::Status;
+use rocket::response::status::Custom;
 use crate::docker::manager;
 use shiplift::Docker;
 use uuid::Uuid;
 use std::collections::HashMap;
+use log::{info, error};
 
 #[get("/instances")]
-pub async fn list_instances() -> Result<Json<HashMap<String, crate::Instance>>, String> {
+pub async fn list_instances() -> Result<Json<HashMap<String, crate::Instance>>, Custom<String>> {
     let docker = Docker::new();
     match manager::list_all_instances(&docker, crate::NETWORK_NAME).await {
-        Ok(instances) => Ok(Json(instances)),
-        Err(e) => Err(e.to_string()),
+        Ok(instances) => {
+            if !instances.is_empty() {
+                info!("Successffully listed instances");
+                Ok(Json(instances))
+            } else {
+                Err(Custom(Status::NotFound, "No containers found".to_string()))
+            }
+        },
+        Err(e) => {
+            error!("Error listing instances: {:?}", e);
+            Err(Custom(Status::InternalServerError, e.to_string()))
+        },
     }
 }
 
@@ -77,7 +90,6 @@ pub async fn stop_all_instances() -> Result<(), String> {
     }
 }
 
-// You might also have a function here to return all routes related to the API
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         list_instances,

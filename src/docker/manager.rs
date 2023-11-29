@@ -68,12 +68,10 @@ pub async fn create_instance(
 
     match docker.containers().create(&options).await {
         Ok(container) => {
-            // Log after successful container creation
             info!("{} container created successfully: {:?}", label, container);
             Ok(container.id)
         }
         Err(err) => {
-            // Log the error if container creation fails
             error!("Error creating {} container: {:?}", label, err);
             Err(err)
         }
