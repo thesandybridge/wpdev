@@ -11,7 +11,10 @@ use std::collections::HashMap;
 ///
 /// * `docker` - &Docker
 /// * `network_name` - name of the network
-pub async fn create_network_if_not_exists(docker: &Docker, network_name: &str) -> Result<(), shiplift::Error> {
+pub async fn create_network_if_not_exists(
+    docker: &Docker,
+    network_name: &str
+) -> Result<(), shiplift::Error> {
     let networks = docker.networks().list(&Default::default()).await?;
     if networks.iter().any(|network| network.name == network_name) {
         // Network already exists
@@ -95,7 +98,10 @@ async fn list_instances(
     Ok(instances)
 }
 
-pub async fn list_all_instances(docker: &Docker, network_name: &str) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
+pub async fn list_all_instances(
+    docker: &Docker,
+    network_name: &str
+) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::builder()
@@ -105,7 +111,10 @@ pub async fn list_all_instances(docker: &Docker, network_name: &str) -> Result<H
     list_instances(docker, network_name, containers).await
 }
 
-pub async fn list_running_instances(docker: &Docker, network_name: &str) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
+pub async fn list_running_instances(
+    docker: &Docker,
+    network_name: &str
+) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::default())
@@ -113,7 +122,11 @@ pub async fn list_running_instances(docker: &Docker, network_name: &str) -> Resu
    list_instances(docker, network_name, containers).await
 }
 
-pub async fn start_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+pub async fn start_all_containers_in_instance(
+    docker: &Docker,
+    network_name: &str,
+    instance_uuid: &str
+) -> Result<(), shiplift::Error> {
     let instances = list_all_instances(docker, network_name).await?;
 
     if let Some(instance) = instances.get(instance_uuid) {
@@ -134,7 +147,11 @@ pub async fn start_all_containers_in_instance(docker: &Docker, network_name: &st
     Ok(())
 }
 
-pub async fn stop_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+pub async fn stop_all_containers_in_instance(
+    docker: &Docker,
+    network_name: &str,
+    instance_uuid: &str
+) -> Result<(), shiplift::Error> {
     let instances = list_running_instances(docker, network_name).await?;
 
     if let Some(instance) = instances.get(instance_uuid) {
@@ -155,7 +172,11 @@ pub async fn stop_all_containers_in_instance(docker: &Docker, network_name: &str
     Ok(())
 }
 
-pub async fn delete_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+pub async fn delete_all_containers_in_instance(
+    docker: &Docker,
+    network_name: &str,
+    instance_uuid: &str
+) -> Result<(), shiplift::Error> {
     let instances = list_all_instances(docker, network_name).await?;
 
     if let Some(instance) = instances.get(instance_uuid) {
@@ -176,7 +197,11 @@ pub async fn delete_all_containers_in_instance(docker: &Docker, network_name: &s
     Ok(())
 }
 
-pub async fn restart_all_containers_in_instance(docker: &Docker, network_name: &str, instance_uuid: &str) -> Result<(), shiplift::Error> {
+pub async fn restart_all_containers_in_instance(
+    docker: &Docker,
+    network_name: &str,
+    instance_uuid: &str
+) -> Result<(), shiplift::Error> {
     let instances = list_all_instances(docker, network_name).await?;
 
     if let Some(instance) = instances.get(instance_uuid) {
@@ -197,7 +222,10 @@ pub async fn restart_all_containers_in_instance(docker: &Docker, network_name: &
     Ok(())
 }
 
-pub async fn stop_all_instances(docker: &Docker, network_name: &str) -> Result<(), shiplift::Error> {
+pub async fn stop_all_instances(
+    docker: &Docker,
+    network_name: &str
+) -> Result<(), shiplift::Error> {
     let running_instances = list_running_instances(docker, network_name).await?;
 
     for (_, instance) in running_instances.iter() {
