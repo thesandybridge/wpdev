@@ -5,6 +5,7 @@ mod docker;
 
 use shiplift::{Docker, PullOptions, ImageListOptions};
 use futures::stream::StreamExt;
+use wp_dev::*;
 
 const NETWORK_NAME: &str = "wp-network";
 const WORDPRESS_IMAGE: &str = "wordpress:latest";
@@ -44,6 +45,7 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplif
 
     Ok(())
 }
+
 
 #[launch]
 fn rocket() -> _ {

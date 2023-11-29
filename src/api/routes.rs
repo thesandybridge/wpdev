@@ -3,71 +3,31 @@ use rocket::serde::json::Json;
 use crate::docker::manager;
 use shiplift::Docker;
 use uuid::Uuid;
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize)]
-pub struct Instance {
-    container_ids: Vec<String>,
-    uuid: String,
-}
 
 #[get("/containers")]
-pub async fn list_docker_containers() -> Result<Json<Vec<String>>, String> {
+pub async fn list_instances() -> Result<Json<Vec<String>>, String> {
     let docker = Docker::new(); // Instantiate Docker here
     match manager::list_all_containers(&docker, crate::NETWORK_NAME).await {
-        Ok(containers) => Ok(Json(containers)),
+        Ok(instances) => Ok(Json(instances)),
         Err(e) => Err(e.to_string()),
     }
 }
 
 #[post("/containers/create")]
-pub async fn create_instance() -> Result<Json<Instance>, String> {
+pub async fn create_instance() -> Result<Json<crate::Instance>, String> {
     let docker = Docker::new();
     let mut container_ids = Vec::new();
     let uuid = Uuid::new_v4().to_string();
 
-    // Create WordPress Container
-    match manager::create_instance(
-        &docker,
-        "WordPress",
-        crate::WORDPRESS_IMAGE,
-        crate::NETWORK_NAME,
-        &uuid
-    ).await {
-        Ok(container_id) => container_ids.push(container_id),
-        Err(e) => return Err(e.to_string()),
-    }
+    crate::create_container!(&docker, "WordPress", crate::WORDPRESS_IMAGE, crate::NETWORK_NAME, &uuid, container_ids);
+    crate::create_container!(&docker, "MySQL", crate::MYSQL_IMAGE, crate::NETWORK_NAME, &uuid, container_ids);
+    crate::create_container!(&docker, "NGINX", crate::NGINX_IMAGE, crate::NETWORK_NAME, &uuid, container_ids);
 
-    // Create MySQL Container
-    match manager::create_instance(
-        &docker,
-        "MySQL",
-        crate::MYSQL_IMAGE,
-        crate::NETWORK_NAME,
-        &uuid
-    ).await {
-        Ok(container_id) => container_ids.push(container_id),
-        Err(e) => return Err(e.to_string()),
-    }
-
-    // Create NGINX Container
-    match manager::create_instance(
-        &docker,
-        "NGINX",
-        crate::NGINX_IMAGE,
-        crate::NETWORK_NAME,
-        &uuid
-    ).await {
-        Ok(container_id) => container_ids.push(container_id),
-        Err(e) => return Err(e.to_string()),
-    }
-
-    let instance = Instance {
+    let instance = crate::Instance {
         container_ids,
         uuid,
     };
 
-    // If all containers are created successfully, return their IDs
     Ok(Json(instance))
 }
 
@@ -119,7 +79,7 @@ pub async fn stop_all_containers() -> Result<(), String> {
 // You might also have a function here to return all routes related to the API
 pub fn routes() -> Vec<rocket::Route> {
     routes![
-        list_docker_containers,
+        list_instances,
         create_instance,
         start_container,
         stop_container,

@@ -3,7 +3,6 @@ use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use log::{info, error};
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Creates a Docker Network if it doesn't already exist.
 ///
