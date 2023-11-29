@@ -8,6 +8,8 @@ use futures::stream::StreamExt;
 
 const NETWORK_NAME: &str = "wp-network";
 const WORDPRESS_IMAGE: &str = "wordpress:latest";
+const NGINX_IMAGE: &str = "nginx:latest";
+const MYSQL_IMAGE: &str = "mysql:latest";
 
 async fn image_exists(image_name: &str) -> bool {
     let docker = Docker::new();

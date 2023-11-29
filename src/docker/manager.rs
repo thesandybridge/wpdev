@@ -2,6 +2,8 @@ use shiplift::{Docker, NetworkCreateOptions};
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use log::{info, error};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Creates a Docker Network if it doesn't already exist.
 ///
@@ -33,22 +35,33 @@ pub async fn create_network_if_not_exists(docker: &Docker, network_name: &str) -
     }
 }
 
-pub async fn create_wordpress_container(docker: &Docker) -> Result<String, shiplift::Error> {
-    create_network_if_not_exists(&docker, crate::NETWORK_NAME).await?;
+pub async fn create_instance(
+    docker: &Docker,
+    label: &str,
+    image: &str,
+    network_name: &str,
+    instance_label: &str,
+) -> Result<String, shiplift::Error> {
 
-    let options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
+    create_network_if_not_exists(&docker, &network_name).await?;
+
+    let mut labels = HashMap::new();
+    labels.insert("instance", instance_label);
+
+    let options = ContainerOptions::builder(&image)
         .network_mode(crate::NETWORK_NAME)
+        .labels(&labels)
         .build();
 
     match docker.containers().create(&options).await {
         Ok(container) => {
             // Log after successful container creation
-            info!("WordPress container created successfully: {:?}", container);
+            info!("{} container created successfully: {:?}", label, container);
             Ok(container.id)
         }
         Err(err) => {
             // Log the error if container creation fails
-            error!("Error creating WordPress container: {:?}", err);
+            error!("Error creating {} container: {:?}", label, err);
             Err(err)
         }
     }
