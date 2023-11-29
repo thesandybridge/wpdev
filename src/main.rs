@@ -2,6 +2,7 @@
 
 mod api;
 mod docker;
+mod config;
 
 use shiplift::{Docker, PullOptions, ImageListOptions};
 use futures::stream::StreamExt;

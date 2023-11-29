@@ -27,22 +27,35 @@ pub async fn list_instances() -> Result<Json<HashMap<String, crate::Instance>>, 
     }
 }
 
-#[post("/instances/create")]
-pub async fn create_instance() -> Result<Json<crate::Instance>, String> {
+#[post("/instances/create", data = "<env_vars>")]
+pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) -> Result<Json<crate::Instance>, Custom<String>> {
     let docker = Docker::new();
-    let mut container_ids = Vec::new();
     let uuid = Uuid::new_v4().to_string();
 
-    crate::create_container!(&docker, "WordPress", crate::WORDPRESS_IMAGE, crate::NETWORK_NAME, &uuid, container_ids);
-    crate::create_container!(&docker, "MySQL", crate::MYSQL_IMAGE, crate::NETWORK_NAME, &uuid, container_ids);
-    crate::create_container!(&docker, "NGINX", crate::NGINX_IMAGE, crate::NETWORK_NAME, &uuid, container_ids);
-
-    let instance = crate::Instance {
-        container_ids,
-        uuid,
-    };
-
-    Ok(Json(instance))
+    match env_vars {
+        Some(vars) => {
+            // Proceed with instance creation if data is provided
+            match manager::create_instance(
+                &docker,
+                crate::NETWORK_NAME,
+                &uuid,
+                vars.into_inner()
+            ).await {
+                Ok(container_ids) => {
+                    let instance = crate::Instance {
+                        container_ids,
+                        uuid,
+                    };
+                    Ok(Json(instance))
+                },
+                Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+            }
+        },
+        None => {
+            // Handle the case where no data is provided
+            Err(Custom(Status::BadRequest, "No data provided".to_string()))
+        }
+    }
 }
 
 #[post("/instances/<instance_uuid>/start")]
