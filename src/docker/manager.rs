@@ -38,6 +38,16 @@ pub async fn create_network_if_not_exists(
     }
 }
 
+/// Create docker docker containers that are grouped by a unique
+/// identifier.
+///
+/// # Arguments
+///
+/// * `docker` - Docker interface
+/// * `label` - String used to describe the container
+/// * `image` - Docker image
+/// * `network_name` - Docker network name
+/// * `instance_label` - UUID
 pub async fn create_instance(
     docker: &Docker,
     label: &str,
