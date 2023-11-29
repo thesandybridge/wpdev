@@ -15,6 +15,38 @@ pub enum ContainerOperation {
     Delete
 }
 
+pub enum ContainerStatus {
+    Running,
+    Stopped,
+    Restarting,
+    Paused,
+    Exited,
+    Dead,
+    Unknown,
+}
+
+pub enum InstanceStatus {
+    Running,
+    Stopped,
+    Restarting,
+    Paused,
+    Exited,
+    Dead,
+    Unknown,
+}
+
+pub enum InstanceOperation {
+    Start,
+    Stop,
+    Restart,
+    Delete
+}
+
+pub enum Instance {
+    All,
+    One(String)
+}
+
 /// Creates a Docker Network if it doesn't already exist.
 ///
 /// # Arguments
@@ -159,7 +191,7 @@ pub async fn list_running_instances(
    list_instances(docker, network_name, containers).await
 }
 
-pub async fn instance_handler(
+async fn handle_instance(
     docker: &Docker,
     network_name: &str,
     instance_uuid: &str,
@@ -197,7 +229,7 @@ pub async fn instance_handler(
     }
 }
 
-pub async fn instances_handler(
+async fn handle_all_instances(
     docker: &Docker,
     network_name: &str,
     operation: ContainerOperation,
@@ -207,7 +239,7 @@ pub async fn instances_handler(
         .map_err(|e| Custom(Status::InternalServerError, format!("Error listing instances: {}", e)))?;
 
     for (_, instance) in instances.iter() {
-        instance_handler(
+        handle_instance(
             docker,
             network_name,
             &instance.uuid,
@@ -217,4 +249,21 @@ pub async fn instances_handler(
     }
 
     Ok(())
+}
+
+pub async fn instance_handler(
+    docker: &Docker,
+    network_name: &str,
+    instance: Instance,
+    operation: ContainerOperation,
+    success_message: &str,
+) -> Result<(), Custom<String>> {
+    match instance {
+        Instance::All => {
+            handle_all_instances(docker, network_name, operation, success_message).await
+        }
+        Instance::One(instance_uuid) => {
+            handle_instance(docker, network_name, &instance_uuid, operation, success_message).await
+        }
+    }
 }

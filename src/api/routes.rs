@@ -51,7 +51,7 @@ pub async fn start_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<St
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        &instance_uuid,
+        manager::Instance::One(instance_uuid.to_string()),
         manager::ContainerOperation::Start,
         "started"
         ).await
@@ -67,7 +67,7 @@ pub async fn stop_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<Str
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        &instance_uuid,
+        manager::Instance::One(instance_uuid.to_string()),
         manager::ContainerOperation::Stop,
         "stopped"
         ).await
@@ -83,7 +83,7 @@ pub async fn restart_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        &instance_uuid,
+        manager::Instance::One(instance_uuid.to_string()),
         manager::ContainerOperation::Restart,
         "restarted"
         ).await
@@ -99,7 +99,7 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<S
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        &instance_uuid,
+        manager::Instance::One(instance_uuid.to_string()),
         manager::ContainerOperation::Delete,
         "deleted"
         ).await
@@ -112,9 +112,10 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<S
 #[post("/instances/start_all")]
 pub async fn start_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::instances_handler(
+    match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
+        manager::Instance::All,
         manager::ContainerOperation::Start,
         "started"
     ).await {
@@ -126,9 +127,10 @@ pub async fn start_all_instances() -> Result<(), Custom<String>> {
 #[post("/instances/restart_all")]
 pub async fn restart_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::instances_handler(
+    match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
+        manager::Instance::All,
         manager::ContainerOperation::Restart,
         "restart"
     ).await {
@@ -140,9 +142,10 @@ pub async fn restart_all_instances() -> Result<(), Custom<String>> {
 #[post("/instances/stop_all")]
 pub async fn stop_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::instances_handler(
+    match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
+        manager::Instance::All,
         manager::ContainerOperation::Stop,
         "stopped"
     ).await {
@@ -154,9 +157,10 @@ pub async fn stop_all_instances() -> Result<(), Custom<String>> {
 #[post("/instances/purge")]
 pub async fn delete_all_instance() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::instances_handler(
+    match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
+        manager::Instance::All,
         manager::ContainerOperation::Delete,
         "deleted"
     ).await {
