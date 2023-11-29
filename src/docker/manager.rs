@@ -20,6 +20,15 @@ pub struct ContainerEnvVars {
     wordpress: Option<HashMap<String, String>>,
 }
 
+impl Default for ContainerEnvVars {
+    fn default() -> Self {
+        ContainerEnvVars {
+            mysql: None,
+            wordpress: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum ContainerOperation {
     Start,
@@ -74,6 +83,8 @@ fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<
 
 async fn generate_nginx_config(instance_label: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let wordpress_container_name = format!("{}-wordpress", instance_label);
+    let config_dir = dirs::config_dir().unwrap().join("wpdev");
+
     let nginx_config = format!(
         r#"
         server {{
@@ -92,7 +103,7 @@ async fn generate_nginx_config(instance_label: &str) -> Result<PathBuf, Box<dyn 
         instance_label = instance_label,
     );
 
-    let nginx_config_dir = PathBuf::from(format!(".local/wpdev/instances/{}/nginx", instance_label));
+    let nginx_config_dir = config_dir.join(PathBuf::from(format!("instances/{}/nginx", instance_label)));
     fs::create_dir_all(&nginx_config_dir).await?;
     let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
     fs::write(&nginx_config_path, nginx_config).await?;
@@ -150,6 +161,7 @@ pub async fn create_instance(
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let config = loader::read_or_create_config().await?;
     let mut container_ids = Vec::new();
+    let home_dir = dirs::home_dir().ok_or("Home directory not found")?;
 
     let default_mysql_vars = HashMap::from([
         ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
@@ -177,18 +189,21 @@ pub async fn create_instance(
     labels.insert("instance", instance_label);
 
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
         .env(mysql_env_vars)
         .labels(&labels)
         .name(&format!("{}-mysql", &instance_label))
         .build();
 
-    let wordpress_path = PathBuf::from(&config.wordpress_instance_path).join(instance_label);
+
+    let wordpress_path = home_dir.join(PathBuf::from(&config.wordpress_instance_path).join(instance_label));
     fs::create_dir_all(&wordpress_path).await?;
 
     let nginx_config_path = generate_nginx_config(instance_label).await?;
 
 
     let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
         .env(wordpress_env_vars)
         .labels(&labels)
         .name(&format!("{}-wordpress", &instance_label))
@@ -196,6 +211,7 @@ pub async fn create_instance(
         .build();
 
     let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
         .labels(&labels)
         .name(&format!("{}-nginx", instance_label))
         .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
@@ -354,4 +370,30 @@ pub async fn instance_handler(
             handle_instance(docker, network_name, &instance_uuid, operation, success_message).await
         }
     }
+}
+
+pub async fn purge_instances(instance: Instance) -> Result<(), Custom<String>> {
+    let config_dir = dirs::config_dir().unwrap().join("wpdev");
+
+    match instance {
+        Instance::All => {
+            let p = &config_dir.join(PathBuf::from("instances"));
+            let path = p.to_str().unwrap();
+            fs::remove_dir_all(&path).await
+                .map_err(|err| Custom(
+                        Status::InternalServerError,
+                        format!("Error removing directory {}: {}", path, err)))?;
+            Ok(())
+        }
+        Instance::One(instance_uuid) => {
+            let p = &config_dir.join(PathBuf::from("instances").join(&instance_uuid));
+            let path = p.to_str().unwrap();
+            fs::remove_dir_all(&path).await
+                .map_err(|err| Custom(
+                        Status::InternalServerError,
+                        format!("Error removing directory {}: {}", path, err)))?;
+            Ok(())
+        }
+    }
+
 }

@@ -11,7 +11,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
-            wordpress_instance_path: String::from(".local/wpdev/instances"),
+            wordpress_instance_path: String::from(".config/wpdev/instances"),
         }
     }
 }

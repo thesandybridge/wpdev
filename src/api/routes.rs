@@ -2,7 +2,7 @@ use rocket::get;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status::Custom;
-use crate::docker::manager;
+use crate::docker::manager::{self, purge_instances};
 use shiplift::Docker;
 use uuid::Uuid;
 use std::collections::HashMap;
@@ -32,31 +32,29 @@ pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) 
     let docker = Docker::new();
     let uuid = Uuid::new_v4().to_string();
 
-    match env_vars {
-        Some(vars) => {
-            // Proceed with instance creation if data is provided
-            match manager::create_instance(
-                &docker,
-                crate::NETWORK_NAME,
-                &uuid,
-                vars.into_inner()
-            ).await {
-                Ok(container_ids) => {
-                    let instance = crate::Instance {
-                        container_ids,
-                        uuid,
-                    };
-                    Ok(Json(instance))
-                },
-                Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
-            }
+    // Default environment variables if no data is provided
+    let default_env_vars = manager::ContainerEnvVars::default(); // Ensure you have a default implementation
+
+    // Use the provided env_vars if available, otherwise use default
+    let env_vars = env_vars.map_or(default_env_vars, |json| json.into_inner());
+
+    match manager::create_instance(
+        &docker,
+        crate::NETWORK_NAME,
+        &uuid,
+        env_vars
+    ).await {
+        Ok(container_ids) => {
+            let instance = crate::Instance {
+                container_ids,
+                uuid,
+            };
+            Ok(Json(instance))
         },
-        None => {
-            // Handle the case where no data is provided
-            Err(Custom(Status::BadRequest, "No data provided".to_string()))
-        }
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
+
 
 #[post("/instances/<instance_uuid>/start")]
 pub async fn start_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
@@ -107,7 +105,7 @@ pub async fn restart_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<
 }
 
 #[post("/instances/<instance_uuid>/delete")]
-pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
+pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
@@ -119,7 +117,9 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<S
     {
         Ok(_) => Ok(Json(instance_uuid)),
         Err(e) => Err(e),
-    }
+    }?;
+
+    purge_instances(manager::Instance::One(instance_uuid.to_string())).await
 }
 
 #[post("/instances/start_all")]
@@ -179,7 +179,9 @@ pub async fn delete_all_instance() -> Result<(), Custom<String>> {
     ).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
-    }
+    }?;
+
+    purge_instances(manager::Instance::All).await
 }
 
 pub fn routes() -> Vec<rocket::Route> {
