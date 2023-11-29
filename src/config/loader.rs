@@ -5,13 +5,13 @@ use anyhow::Result;
 
 #[derive(Serialize, Deserialize)]
 pub struct AppConfig {
-    pub wordpress_instance_path: String,
+    pub custom_root: String,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
-            wordpress_instance_path: String::from(".config/wpdev/instances"),
+            custom_root: String::from(".config/wpdev/instances"),
         }
     }
 }

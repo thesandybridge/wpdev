@@ -1,5 +1,4 @@
 use shiplift::{Docker, NetworkCreateOptions};
-use rocket::serde::json::Json;
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
@@ -13,6 +12,7 @@ use std::path::PathBuf;
 use dirs;
 use tokio::fs;
 use crate::config::loader;
+use crate::config::loader::AppConfig;
 
 #[derive(Deserialize)]
 pub struct ContainerEnvVars {
@@ -81,9 +81,8 @@ fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<
     env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
 }
 
-async fn generate_nginx_config(instance_label: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+async fn generate_nginx_config(config: AppConfig, instance_label: &str, home_dir: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let wordpress_container_name = format!("{}-wordpress", instance_label);
-    let config_dir = dirs::config_dir().unwrap().join("wpdev");
 
     let nginx_config = format!(
         r#"
@@ -103,7 +102,7 @@ async fn generate_nginx_config(instance_label: &str) -> Result<PathBuf, Box<dyn 
         instance_label = instance_label,
     );
 
-    let nginx_config_dir = config_dir.join(PathBuf::from(format!("instances/{}/nginx", instance_label)));
+    let nginx_config_dir = home_dir.join(PathBuf::from(format!("{}/{}/nginx", &config.custom_root, instance_label)));
     fs::create_dir_all(&nginx_config_dir).await?;
     let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
     fs::write(&nginx_config_path, nginx_config).await?;
@@ -191,27 +190,30 @@ pub async fn create_instance(
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .env(mysql_env_vars)
+        .user("1000:1000")
         .labels(&labels)
         .name(&format!("{}-mysql", &instance_label))
         .build();
 
+    let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app/wp-content", &config.custom_root, instance_label)));
+    fs::create_dir_all(&instance_path).await?;
+    let wordpress_path = instance_path;
 
-    let wordpress_path = home_dir.join(PathBuf::from(&config.wordpress_instance_path).join(instance_label));
-    fs::create_dir_all(&wordpress_path).await?;
-
-    let nginx_config_path = generate_nginx_config(instance_label).await?;
+    let nginx_config_path = generate_nginx_config(config, instance_label, home_dir).await?;
 
 
     let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .env(wordpress_env_vars)
         .labels(&labels)
+        .user("1000:1000")
         .name(&format!("{}-wordpress", &instance_label))
         .volumes(vec![&format!("{}:/var/www/html/wp-content", wordpress_path.to_str().unwrap())])
         .build();
 
     let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
         .network_mode(crate::NETWORK_NAME)
+        .user("1000:1000")
         .labels(&labels)
         .name(&format!("{}-nginx", instance_label))
         .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
