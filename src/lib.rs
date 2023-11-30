@@ -1,4 +1,3 @@
-use serde::{Serialize, Deserialize};
 
 #[macro_export]
 macro_rules! create_container {

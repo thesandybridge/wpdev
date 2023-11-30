@@ -4,6 +4,8 @@ use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
 use std::error::Error;
 use log::{info, error};
+use std::path::Path;
+use std::io;
 use std::collections::HashMap;
 use rocket::http::Status;
 use rocket::response::status::Custom;
@@ -209,7 +211,7 @@ pub async fn create_instance(
         .name(&format!("{}-mysql", &instance_label))
         .build();
 
-    let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app/wp-content", &config.custom_root, instance_label)));
+    let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
     fs::create_dir_all(&instance_path).await?;
     let wordpress_path = instance_path;
 
@@ -222,7 +224,9 @@ pub async fn create_instance(
         .labels(&labels)
         .user("1000:1000")
         .name(&format!("{}-wordpress", &instance_label))
-        .volumes(vec![&format!("{}:/var/www/html/wp-content", wordpress_path.to_str().unwrap())])
+        .volumes(vec![
+                 &format!("{}:/var/www/html/", wordpress_path.to_str().unwrap()),
+        ])
         .build();
 
     let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
