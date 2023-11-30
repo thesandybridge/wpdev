@@ -1,18 +1,27 @@
-use shiplift::{Docker, NetworkCreateOptions};
+use shiplift::{Docker, NetworkCreateOptions, Error as DockerError};
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
+use std::error::Error;
 use log::{info, error};
 use std::collections::HashMap;
 use rocket::http::Status;
 use rocket::response::status::Custom;
-use serde::Deserialize;
 use anyhow::Result;
 use std::path::PathBuf;
 use dirs;
 use tokio::fs;
 use crate::config::loader;
 use crate::config::loader::AppConfig;
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct Instance {
+    pub container_ids: Vec<String>,
+    pub uuid: String,
+    pub status: InstanceStatus,
+    pub container_statuses: HashMap<String, ContainerStatus>,
+}
 
 #[derive(Deserialize)]
 pub struct ContainerEnvVars {
@@ -29,14 +38,16 @@ impl Default for ContainerEnvVars {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ContainerOperation {
     Start,
     Stop,
     Restart,
-    Delete
+    Delete,
+    Inspect,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ContainerStatus {
     Running,
     Stopped,
@@ -45,8 +56,11 @@ pub enum ContainerStatus {
     Exited,
     Dead,
     Unknown,
+    NotFound,
+    Deleted,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum InstanceStatus {
     Running,
     Stopped,
@@ -55,6 +69,7 @@ pub enum InstanceStatus {
     Exited,
     Dead,
     Unknown,
+    PartiallyRunning,
 }
 
 pub enum InstanceOperation {
@@ -64,7 +79,7 @@ pub enum InstanceOperation {
     Delete
 }
 
-pub enum Instance {
+pub enum InstanceSelection {
     All,
     One(String)
 }
@@ -190,7 +205,6 @@ pub async fn create_instance(
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .env(mysql_env_vars)
-        .user("1000:1000")
         .labels(&labels)
         .name(&format!("{}-mysql", &instance_label))
         .build();
@@ -213,7 +227,6 @@ pub async fn create_instance(
 
     let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .user("1000:1000")
         .labels(&labels)
         .name(&format!("{}-nginx", instance_label))
         .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
@@ -237,8 +250,8 @@ async fn list_instances(
     docker: &Docker,
     network_name: &str,
     containers: Vec<Container>
-) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
-    let mut instances: HashMap<String, crate::Instance> = HashMap::new();
+) -> Result<HashMap<String, Instance>, shiplift::Error> {
+    let mut instances: HashMap<String, Instance> = HashMap::new();
 
     for container in containers {
         let details = docker.containers().get(&container.id).inspect().await?;
@@ -248,9 +261,11 @@ async fn list_instances(
             if network_settings.networks.contains_key(network_name) {
                 if let Some(instance_label) = labels.get("instance") {
                     instances.entry(instance_label.to_string())
-                        .or_insert_with(|| crate::Instance {
+                        .or_insert_with(|| Instance {
                             container_ids: Vec::new(),
-                            uuid: instance_label.to_string()
+                            uuid: instance_label.to_string(),
+                            status: InstanceStatus::Stopped,
+                            container_statuses: HashMap::new(),
                         })
                         .container_ids.push(container.id);
                 }
@@ -270,7 +285,7 @@ async fn list_instances(
 pub async fn list_all_instances(
     docker: &Docker,
     network_name: &str
-) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
+) -> Result<HashMap<String, Instance>, shiplift::Error> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::builder()
@@ -289,7 +304,7 @@ pub async fn list_all_instances(
 pub async fn list_running_instances(
     docker: &Docker,
     network_name: &str
-) -> Result<HashMap<String, crate::Instance>, shiplift::Error> {
+) -> Result<HashMap<String, Instance>, shiplift::Error> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::default())
@@ -297,39 +312,123 @@ pub async fn list_running_instances(
    list_instances(docker, network_name, containers).await
 }
 
-async fn handle_instance(
+pub async fn fetch_container_status(docker: &Docker, container_id: &str) -> Result<Option<ContainerStatus>, Box<dyn Error>> {
+    match docker.containers().get(container_id).inspect().await {
+        Ok(container_info) => {
+            let status = match container_info.state.status.as_str() {
+                "running" => ContainerStatus::Running,
+                "exited" => ContainerStatus::Stopped,
+                _ => ContainerStatus::Unknown,
+            };
+            Ok(Some(status))
+        },
+        Err(DockerError::Fault { code, .. }) if code.as_u16() == 404 => {
+            // Container not found, treat as a valid case
+            Ok(None)
+        },
+        Err(e) => Err(Box::new(e))
+    }
+}
+
+pub fn determine_instance_status(container_statuses: &HashMap<String, ContainerStatus>) -> InstanceStatus {
+    let all_running = container_statuses.values().all(|status| *status == ContainerStatus::Running);
+    let any_running = container_statuses.values().any(|status| *status == ContainerStatus::Running);
+
+    match (all_running, any_running) {
+        (true, _) => InstanceStatus::Running,
+        (false, true) => InstanceStatus::PartiallyRunning,
+        (false, false) => InstanceStatus::Stopped,
+    }
+}
+
+pub async fn handle_instance(
     docker: &Docker,
     network_name: &str,
     instance_uuid: &str,
     operation: ContainerOperation,
-    success_message: &str,
-) -> Result<(), Custom<String>> {
+    status: Option<InstanceStatus>,
+) -> Result<InstanceStatus, Custom<String>> {
     let instances = list_all_instances(docker, network_name).await
-        .map_err(|e| Custom(Status::InternalServerError, format!("Error listing instances: {}", e)))?;
+        .map_err(|e| {
+            error!("Error listing instances: {}", e);
+            Custom(Status::InternalServerError, format!("Error listing instances: {}", e))
+        })?;
 
-    if let Some(instance) = instances.get(instance_uuid) {
+    let running_instances = list_running_instances(docker, network_name).await
+        .map_err(|e| {
+            error!("Error listing running instances: {}", e);
+            Custom(Status::InternalServerError, format!("Error listing running instances: {}", e))
+        })?;
+
+    let target_instances = match status {
+        Some(InstanceStatus::Running) => &running_instances,
+        _ => &instances,
+    };
+
+    if let Some(instance) = target_instances.get(instance_uuid) {
+        let mut container_statuses = HashMap::new();
         for container_id in &instance.container_ids {
             match operation {
-                ContainerOperation::Start => {
+                ContainerOperation::Start if status != Some(InstanceStatus::Running) => {
                     docker.containers().get(container_id).start().await
-                        .map_err(|err| Custom(Status::InternalServerError, format!("Error starting container {}: {}", container_id, err)))?;
+                        .map_err(|err| {
+                            error!("Error starting container {}: {}", container_id, err);
+                            Custom(Status::InternalServerError, format!("Error starting container {}: {}", container_id, err))
+                        })?;
+                    info!("{} container successfully started", container_id);
                 }
-                ContainerOperation::Stop => {
-                    docker.containers().get(container_id).stop(None).await
-                        .map_err(|err| Custom(Status::InternalServerError, format!("Error stopping container {}: {}", container_id, err)))?;
+                ContainerOperation::Stop | ContainerOperation::Restart if status == Some(InstanceStatus::Running) => {
+                    if operation == ContainerOperation::Stop {
+                        docker.containers().get(container_id).stop(None).await
+                            .map_err(|err| {
+                                error!("Error stopping container {}: {}", container_id, err);
+                                Custom(Status::InternalServerError, format!("Error stopping container {}: {}", container_id, err))
+                            })?;
+                        info!("{} container successfully stopped", container_id);
+                    } else {
+                        docker.containers().get(container_id).restart(None).await
+                            .map_err(|err| {
+                                error!("Error restarting container {}: {}", container_id, err);
+                                Custom(Status::InternalServerError, format!("Error restarting container {}: {}", container_id, err))
+                            })?;
+                        info!("{} container successfully restarted", container_id);
+                    }
                 }
-                ContainerOperation::Restart => {
-                    docker.containers().get(container_id).restart(None).await
-                        .map_err(|err| Custom(Status::InternalServerError, format!("Error restarting container {}: {}", container_id, err)))?;
-                }
-                ContainerOperation::Delete => {
+                ContainerOperation::Delete if status != Some(InstanceStatus::Running) => {
                     docker.containers().get(container_id).delete().await
-                        .map_err(|err| Custom(Status::InternalServerError, format!("Error restarting container {}: {}", container_id, err)))?;
+                        .map_err(|err| {
+                            error!("Error deleting container {}: {}", container_id, err);
+                            Custom(Status::InternalServerError, format!("Error deleting container {}: {}", container_id, err))
+                        })?;
+                    container_statuses.insert(container_id.clone(), ContainerStatus::Deleted);
+                    info!("{} container successfully deleted", container_id);
+                }
+                ContainerOperation::Inspect => {
+                    docker.containers().get(container_id).inspect().await
+                        .map_err(|err| {
+                            error!("Error inspecting container {}: {}", container_id, err);
+                            Custom(Status::InternalServerError, format!("Error inspecting container {}: {}", container_id, err))
+                        })?;
+                    info!("{} container successfully inspected", container_id);
+                }
+                _ => {
+                    info!("Operation {:?} is not valid for instance {} with status {:?}", operation, instance_uuid, status);
                 }
             }
-            info!("{} container successfully {}", container_id, success_message);
+
+            let container_status = fetch_container_status(docker, container_id).await
+                .map_err(|err| Custom(Status::InternalServerError, format!("Error fetching status for container {}: {}", container_id, err)))?;
+
+            if let Some(status) = container_status {
+                container_statuses.insert(container_id.clone(), status);
+            } else {
+                container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
+            }
         }
-        Ok(())
+
+        let instance_status = determine_instance_status(&container_statuses);
+        Ok(instance_status)
+
     } else {
         Err(Custom(Status::NotFound, format!("Instance with UUID {} not found", instance_uuid)))
     }
@@ -339,46 +438,55 @@ async fn handle_all_instances(
     docker: &Docker,
     network_name: &str,
     operation: ContainerOperation,
-    success_message: &str,
-) -> Result<(), Custom<String>> {
+    status: Option<InstanceStatus>,
+) -> Result<Vec<(String, InstanceStatus)>, Custom<String>> {
     let instances = list_all_instances(docker, network_name).await
         .map_err(|e| Custom(Status::InternalServerError, format!("Error listing instances: {}", e)))?;
 
-    for (_, instance) in instances.iter() {
-        handle_instance(
+    let mut statuses = Vec::new();
+
+    for (uuid, _) in instances.iter() {
+        let instance_status = handle_instance(
             docker,
             network_name,
-            &instance.uuid,
+            uuid,
             operation.clone(),
-            success_message
-        ).await?;
+            status.clone(),
+        ).await
+        .map_err(|e| Custom(Status::InternalServerError, format!("Error handling instance {}: {:?}", uuid, e)))?;
+
+        statuses.push((uuid.clone(), instance_status));
     }
 
-    Ok(())
+    Ok(statuses)
 }
+
+
 
 pub async fn instance_handler(
     docker: &Docker,
     network_name: &str,
-    instance: Instance,
+    instance_selection: InstanceSelection,
     operation: ContainerOperation,
-    success_message: &str,
-) -> Result<(), Custom<String>> {
-    match instance {
-        Instance::All => {
-            handle_all_instances(docker, network_name, operation, success_message).await
+    status: Option<InstanceStatus>,
+) -> Result<Vec<(String, InstanceStatus)>, Custom<String>> {
+    match instance_selection {
+        InstanceSelection::All => {
+            handle_all_instances(docker, network_name, operation, status).await
         }
-        Instance::One(instance_uuid) => {
-            handle_instance(docker, network_name, &instance_uuid, operation, success_message).await
+        InstanceSelection::One(instance_uuid) => {
+            let instance_status = handle_instance(docker, network_name, &instance_uuid, operation, status).await?;
+            Ok(vec![(instance_uuid.to_string(), instance_status)])
         }
     }
 }
 
-pub async fn purge_instances(instance: Instance) -> Result<(), Custom<String>> {
+
+pub async fn purge_instances(instance: InstanceSelection) -> Result<(), Custom<String>> {
     let config_dir = dirs::config_dir().unwrap().join("wpdev");
 
     match instance {
-        Instance::All => {
+        InstanceSelection::All => {
             let p = &config_dir.join(PathBuf::from("instances"));
             let path = p.to_str().unwrap();
             fs::remove_dir_all(&path).await
@@ -387,7 +495,7 @@ pub async fn purge_instances(instance: Instance) -> Result<(), Custom<String>> {
                         format!("Error removing directory {}: {}", path, err)))?;
             Ok(())
         }
-        Instance::One(instance_uuid) => {
+        InstanceSelection::One(instance_uuid) => {
             let p = &config_dir.join(PathBuf::from("instances").join(&instance_uuid));
             let path = p.to_str().unwrap();
             fs::remove_dir_all(&path).await

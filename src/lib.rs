@@ -17,9 +17,4 @@ macro_rules! create_container {
     }};
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct Instance {
-    pub container_ids: Vec<String>,
-    pub uuid: String,
-}
 

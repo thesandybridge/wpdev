@@ -2,23 +2,42 @@ use rocket::get;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status::Custom;
-use crate::docker::manager::{self, purge_instances};
+use crate::docker::manager::{
+    self,
+    purge_instances,
+};
+use crate::docker::manager::Instance;
+use crate::docker::manager::ContainerStatus;
 use shiplift::Docker;
 use uuid::Uuid;
 use std::collections::HashMap;
 use log::{info, error};
 
 #[get("/instances")]
-pub async fn list_instances() -> Result<Json<HashMap<String, crate::Instance>>, Custom<String>> {
+pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<String>> {
     let docker = Docker::new();
     match manager::list_all_instances(&docker, crate::NETWORK_NAME).await {
-        Ok(instances) => {
-            if !instances.is_empty() {
-                info!("Successffully listed instances");
-                Ok(Json(instances))
-            } else {
-                Err(Custom(Status::NotFound, "No containers found".to_string()))
+        Ok(mut instances) => {
+            for (_, instance) in instances.iter_mut() {
+                for container_id in &instance.container_ids {
+                    match manager::fetch_container_status(&docker, container_id).await {
+                        Ok(Some(status)) => {
+                            instance.container_statuses.insert(container_id.clone(), status);
+                        },
+                        Ok(None) => {
+                            // Handle the 'not found' scenario
+                            instance.container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
+                        },
+                        Err(err) => {
+                            return Err(Custom(Status::InternalServerError, format!("Error fetching status for container {}: {}", container_id, err.to_string())));
+                        }
+                    };
+                }
+                instance.status = manager::determine_instance_status(&instance.container_statuses);
             }
+
+            info!("Successfully listed instances");
+            Ok(Json(instances))
         },
         Err(e) => {
             error!("Error listing instances: {:?}", e);
@@ -27,8 +46,9 @@ pub async fn list_instances() -> Result<Json<HashMap<String, crate::Instance>>, 
     }
 }
 
+
 #[post("/instances/create", data = "<env_vars>")]
-pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) -> Result<Json<crate::Instance>, Custom<String>> {
+pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) -> Result<Json<Instance>, Custom<String>> {
     let docker = Docker::new();
     let uuid = Uuid::new_v4().to_string();
 
@@ -45,9 +65,11 @@ pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) 
         env_vars
     ).await {
         Ok(container_ids) => {
-            let instance = crate::Instance {
+            let instance = Instance {
                 container_ids,
                 uuid,
+                status: manager::InstanceStatus::Stopped,
+                container_statuses: HashMap::new(),
             };
             Ok(Json(instance))
         },
@@ -57,49 +79,64 @@ pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) 
 
 
 #[post("/instances/<instance_uuid>/start")]
-pub async fn start_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
+pub async fn start_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::One(instance_uuid.to_string()),
+        manager::InstanceSelection::One(instance_uuid.to_string()),
         manager::ContainerOperation::Start,
-        "started"
-        ).await
-    {
-        Ok(_) => Ok(Json(instance_uuid)),
+        Some(manager::InstanceStatus::Stopped),
+    ).await {
+        Ok(mut statuses) => {
+            if let Some((id, status)) = statuses.pop() {
+                Ok(Json((id, status)))
+            } else {
+                Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
+            }
+        }
         Err(e) => Err(e),
     }
 }
 
 #[post("/instances/<instance_uuid>/stop")]
-pub async fn stop_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
+pub async fn stop_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::One(instance_uuid.to_string()),
+        manager::InstanceSelection::One(instance_uuid.to_string()),
         manager::ContainerOperation::Stop,
-        "stopped"
-        ).await
-    {
-        Ok(_) => Ok(Json(instance_uuid)),
+        Some(manager::InstanceStatus::Running),
+    ).await {
+        Ok(mut statuses) => {
+            if let Some((id, status)) = statuses.pop() {
+                Ok(Json((id, status)))
+            } else {
+                Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
+            }
+        }
         Err(e) => Err(e),
     }
 }
 
 #[post("/instances/<instance_uuid>/restart")]
-pub async fn restart_instance(instance_uuid: &str) -> Result<Json<&str>, Custom<String>> {
+pub async fn restart_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::One(instance_uuid.to_string()),
+        manager::InstanceSelection::One(instance_uuid.to_string()),
         manager::ContainerOperation::Restart,
-        "restarted"
-        ).await
-    {
-        Ok(_) => Ok(Json(instance_uuid)),
+        Some(manager::InstanceStatus::Running),
+    ).await {
+        Ok(mut statuses) => {
+            if let Some((id, status)) = statuses.pop() {
+                Ok(Json((id, status)))
+            } else {
+                Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
+            }
+        }
         Err(e) => Err(e),
     }
 }
@@ -110,59 +147,56 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> 
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::One(instance_uuid.to_string()),
+        manager::InstanceSelection::One(instance_uuid.to_string()),
         manager::ContainerOperation::Delete,
-        "deleted"
-        ).await
-    {
-        Ok(_) => Ok(Json(instance_uuid)),
+        Some(manager::InstanceStatus::Stopped),
+    ).await {
+        Ok(_) => Ok(()),
         Err(e) => Err(e),
-    }?;
-
-    purge_instances(manager::Instance::One(instance_uuid.to_string())).await
+    }
 }
 
 #[post("/instances/start_all")]
-pub async fn start_all_instances() -> Result<(), Custom<String>> {
+pub async fn start_all_instances() -> Result<Json<Vec<(String, manager::InstanceStatus)>>, Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::All,
+        manager::InstanceSelection::All,
         manager::ContainerOperation::Start,
-        "started"
+        Some(manager::InstanceStatus::Stopped),
     ).await {
-        Ok(_) => Ok(()),
+        Ok(statuses) => Ok(Json(statuses)),
         Err(e) => Err(e),
     }
 }
 
 #[post("/instances/restart_all")]
-pub async fn restart_all_instances() -> Result<(), Custom<String>> {
+pub async fn restart_all_instances() -> Result<Json<Vec<(String, manager::InstanceStatus)>>, Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::All,
+        manager::InstanceSelection::All,
         manager::ContainerOperation::Restart,
-        "restart"
+        Some(manager::InstanceStatus::Running),
     ).await {
-        Ok(_) => Ok(()),
+        Ok(statuses) => Ok(Json(statuses)),
         Err(e) => Err(e),
     }
 }
 
 #[post("/instances/stop_all")]
-pub async fn stop_all_instances() -> Result<(), Custom<String>> {
+pub async fn stop_all_instances() -> Result<Json<Vec<(String, manager::InstanceStatus)>>, Custom<String>> {
     let docker = Docker::new();
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::All,
+        manager::InstanceSelection::All,
         manager::ContainerOperation::Stop,
-        "stopped"
+        Some(manager::InstanceStatus::Running),
     ).await {
-        Ok(_) => Ok(()),
+        Ok(statuses) => Ok(Json(statuses)),
         Err(e) => Err(e),
     }
 }
@@ -173,15 +207,15 @@ pub async fn delete_all_instance() -> Result<(), Custom<String>> {
     match manager::instance_handler(
         &docker,
         crate::NETWORK_NAME,
-        manager::Instance::All,
+        manager::InstanceSelection::All,
         manager::ContainerOperation::Delete,
-        "deleted"
+        Some(manager::InstanceStatus::Stopped),
     ).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
     }?;
 
-    purge_instances(manager::Instance::All).await
+    purge_instances(manager::InstanceSelection::All).await
 }
 
 pub fn routes() -> Vec<rocket::Route> {
