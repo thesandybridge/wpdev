@@ -6,7 +6,6 @@ mod config;
 
 use shiplift::{Docker, PullOptions, ImageListOptions};
 use futures::stream::StreamExt;
-use wp_dev::*;
 
 const NETWORK_NAME: &str = "wp-network";
 const WORDPRESS_IMAGE: &str = "wordpress:latest";

@@ -1,4 +1,5 @@
 use shiplift::{Docker, NetworkCreateOptions, Error as DockerError};
+use std::net::{TcpListener, SocketAddr};
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
@@ -12,8 +13,8 @@ use std::path::PathBuf;
 use dirs;
 use tokio::fs;
 use crate::config::loader;
-use crate::config::loader::AppConfig;
 use serde::{Serialize, Deserialize};
+use crate::config::loader::AppConfig;
 
 #[derive(Serialize, Deserialize)]
 pub struct Instance {
@@ -21,6 +22,7 @@ pub struct Instance {
     pub uuid: String,
     pub status: InstanceStatus,
     pub container_statuses: HashMap<String, ContainerStatus>,
+    pub nginx_port: u32,
 }
 
 #[derive(Deserialize)]
@@ -72,13 +74,6 @@ pub enum InstanceStatus {
     PartiallyRunning,
 }
 
-pub enum InstanceOperation {
-    Start,
-    Stop,
-    Restart,
-    Delete
-}
-
 pub enum InstanceSelection {
     All,
     One(String)
@@ -96,34 +91,7 @@ fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<
     env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
 }
 
-async fn generate_nginx_config(config: AppConfig, instance_label: &str, home_dir: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let wordpress_container_name = format!("{}-wordpress", instance_label);
 
-    let nginx_config = format!(
-        r#"
-        server {{
-            listen 80;
-            server_name {instance_label}.local;
-
-            location / {{
-                proxy_pass http://{wordpress_container_name}:80;
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-            }}
-        }}
-        "#,
-        instance_label = instance_label,
-    );
-
-    let nginx_config_dir = home_dir.join(PathBuf::from(format!("{}/{}/nginx", &config.custom_root, instance_label)));
-    fs::create_dir_all(&nginx_config_dir).await?;
-    let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
-    fs::write(&nginx_config_path, nginx_config).await?;
-
-    Ok(nginx_config_path)
-}
 
 /// Creates a Docker Network if it doesn't already exist.
 ///
@@ -185,6 +153,49 @@ async fn create_container(
     }
 }
 
+fn find_free_port() -> Result<u32, Box<dyn std::error::Error>> {
+    // Bind to port 0; the OS will assign a random available port
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let socket_addr: SocketAddr = listener.local_addr()?;
+    let port = socket_addr.port();
+
+    Ok(u32::from(port))
+}
+
+async fn generate_nginx_config(
+    config: AppConfig,
+    instance_label: &str,
+    nginx_port: u32,
+    wordpress_name: &str,
+    home_dir: &PathBuf
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let nginx_config = format!(
+        r#"
+        server {{
+            listen {nginx_port};
+            server_name localhost;
+
+            location / {{
+                proxy_pass http://{wordpress_name}:80/;
+                proxy_set_header Host $host:$server_port;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }}
+        }}
+        "#,
+        nginx_port = nginx_port,
+        wordpress_name = wordpress_name
+    );
+
+    let nginx_config_dir = home_dir.join(format!("{}/{}/nginx", &config.custom_root, instance_label));
+    tokio::fs::create_dir_all(&nginx_config_dir).await?;
+    let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
+    tokio::fs::write(&nginx_config_path, nginx_config).await?;
+
+    Ok(nginx_config_path)
+}
+
 /// Create docker docker containers that are grouped by a unique
 /// identifier.
 ///
@@ -212,7 +223,7 @@ pub async fn create_instance(
     ]);
 
     let default_wordpress_vars = HashMap::from([
-        ("WORDPRESS_DB_HOST".to_string(), "mysql".to_string()),
+        ("WORDPRESS_DB_HOST".to_string(), format!("{}-mysql", instance_label).to_string()),
         ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
         ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
         ("WORDPRESS_DB_NAME".to_string(), "wordpress".to_string()),
@@ -226,8 +237,13 @@ pub async fn create_instance(
 
     create_network_if_not_exists(&docker, &network_name).await?;
 
+    let nginx_port = find_free_port()?;
+
     let mut labels = HashMap::new();
-    labels.insert("instance", instance_label);
+    let instance_label_str = instance_label.to_string();
+    let nginx_port_str = nginx_port.to_string();
+    labels.insert("instance", instance_label_str.as_str());
+    labels.insert("nginx_port", nginx_port_str.as_str());
 
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
@@ -240,7 +256,14 @@ pub async fn create_instance(
     fs::create_dir_all(&instance_path).await?;
     let wordpress_path = instance_path;
 
-    let nginx_config_path = generate_nginx_config(config, instance_label, home_dir).await?;
+
+    let nginx_config_path = generate_nginx_config(
+        config,
+        instance_label,
+        nginx_port,
+        &format!("{}-wordpress", &instance_label),
+        &home_dir,
+    ).await?;
 
 
     let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
@@ -254,11 +277,13 @@ pub async fn create_instance(
         ])
         .build();
 
+
     let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .labels(&labels)
         .name(&format!("{}-nginx", instance_label))
         .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
+        .expose(nginx_port, "tcp", nginx_port)
         .build();
 
     let mut instance = Instance {
@@ -266,6 +291,7 @@ pub async fn create_instance(
         uuid: instance_label.to_string(),
         status: InstanceStatus::Unknown,
         container_statuses: HashMap::new(),
+        nginx_port
     };
 
     let (mysql_id, mysql_status) = create_container(docker, mysql_options, "MySQL", &mut container_ids).await?;
@@ -304,12 +330,17 @@ async fn list_instances(
         if let Some(labels) = &details.config.labels {
             if network_settings.networks.contains_key(network_name) {
                 if let Some(instance_label) = labels.get("instance") {
+                    let nginx_port = labels.get("nginx_port")
+                               .and_then(|port| port.parse::<u32>().ok())
+                               .unwrap_or(0);
+
                     instances.entry(instance_label.to_string())
                         .or_insert_with(|| Instance {
                             container_ids: Vec::new(),
                             uuid: instance_label.to_string(),
                             status: InstanceStatus::Stopped,
                             container_statuses: HashMap::new(),
+                            nginx_port,
                         })
                         .container_ids.push(container.id);
                 }

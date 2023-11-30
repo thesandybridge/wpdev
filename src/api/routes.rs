@@ -25,7 +25,6 @@ pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<
                             instance.container_statuses.insert(container_id.clone(), status);
                         },
                         Ok(None) => {
-                            // Handle the 'not found' scenario
                             instance.container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
                         },
                         Err(err) => {
@@ -210,6 +209,28 @@ pub async fn delete_all_instance() -> Result<(), Custom<String>> {
     purge_instances(manager::InstanceSelection::All).await
 }
 
+#[post("/instances/<instance_uuid>/inspect")]
+pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
+    let docker = Docker::new();
+    match manager::instance_handler(
+        &docker,
+        crate::NETWORK_NAME,
+        manager::InstanceSelection::One(instance_uuid.to_string()),
+        manager::ContainerOperation::Inspect,
+        None
+    ).await {
+        Ok(mut statuses) => {
+            if let Some((id, status)) = statuses.pop() {
+                Ok(Json((id, status)))
+            } else {
+                Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
+            }
+        }
+        Err(e) => Err(e),
+    }
+
+}
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         list_instances,
@@ -222,6 +243,7 @@ pub fn routes() -> Vec<rocket::Route> {
         stop_all_instances,
         restart_all_instances,
         start_all_instances,
+        inspect_instance,
     ]
 }
 
