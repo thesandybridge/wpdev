@@ -23,6 +23,7 @@ pub struct Instance {
     pub status: InstanceStatus,
     pub container_statuses: HashMap<String, ContainerStatus>,
     pub nginx_port: u32,
+    pub adminer_port: u32,
 }
 
 #[derive(Deserialize)]
@@ -153,7 +154,7 @@ async fn create_container(
     }
 }
 
-fn find_free_port() -> Result<u32, Box<dyn std::error::Error>> {
+async fn find_free_port() -> Result<u32, Box<dyn std::error::Error>> {
     // Bind to port 0; the OS will assign a random available port
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let socket_addr: SocketAddr = listener.local_addr()?;
@@ -166,6 +167,7 @@ async fn generate_nginx_config(
     config: AppConfig,
     instance_label: &str,
     nginx_port: u32,
+    adminer_name: &str,
     wordpress_name: &str,
     home_dir: &PathBuf
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -183,9 +185,24 @@ async fn generate_nginx_config(
                 proxy_set_header X-Forwarded-Proto $scheme;
             }}
         }}
+
+        server {{
+            listen 8080;
+            server_name localhost;
+
+            location / {{
+                proxy_pass http://{adminer_name}:8080/;
+                proxy_set_header Host $host:$server_port;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }}
+        }}
         "#,
         nginx_port = nginx_port,
-        wordpress_name = wordpress_name
+        wordpress_name = wordpress_name,
+        adminer_name = adminer_name,
+
     );
 
     let nginx_config_dir = home_dir.join(format!("{}/{}/nginx", &config.custom_root, instance_label));
@@ -215,6 +232,16 @@ pub async fn create_instance(
     let mut container_ids = Vec::new();
     let home_dir = dirs::home_dir().ok_or("Home directory not found")?;
 
+    let default_adminer_vars = HashMap::from([
+        ("ADMINER_DESIGN".to_string(), "nette".to_string()),
+        ("ADMINER_PLUGINS".to_string(), "tables-filter tinymce".to_string()),
+        ("MYSQL_PORT".to_string(), "3306".to_string()),
+        ("ADMINER_DEFAULT_SERVER".to_string(), format!("{}-mysql", instance_label).to_string()),
+        ("ADMINER_DEFAULT_USERNAME".to_string(), "wordpress".to_string()),
+        ("ADMINER_DEFAULT_PASSWORD".to_string(), "password".to_string()),
+        ("ADMINER_DEFAULT_DATABASE".to_string(), "wordpress".to_string()),
+    ]);
+
     let default_mysql_vars = HashMap::from([
         ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
         ("MYSQL_DATABASE".to_string(),"wordpress".to_string()),
@@ -232,18 +259,22 @@ pub async fn create_instance(
         ("WORDPRESS_CONFIG_EXTRA".to_string(), "".to_string()),
     ]);
 
-    let mysql_env_vars = merge_env_vars(default_mysql_vars, &user_env_vars.mysql);
+    let mysql_env_vars = merge_env_vars(default_mysql_vars, &None);
     let wordpress_env_vars = merge_env_vars(default_wordpress_vars, &user_env_vars.wordpress);
+    let adminer_env_vars = merge_env_vars(default_adminer_vars, &None);
 
     create_network_if_not_exists(&docker, &network_name).await?;
 
-    let nginx_port = find_free_port()?;
+    let nginx_port = find_free_port().await?;
+    let adminer_port = find_free_port().await?;
 
     let mut labels = HashMap::new();
     let instance_label_str = instance_label.to_string();
     let nginx_port_str = nginx_port.to_string();
+    let adminer_port_str = adminer_port.to_string();
     labels.insert("instance", instance_label_str.as_str());
     labels.insert("nginx_port", nginx_port_str.as_str());
+    labels.insert("adminer_port", adminer_port_str.as_str());
 
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
@@ -261,6 +292,7 @@ pub async fn create_instance(
         config,
         instance_label,
         nginx_port,
+        &format!("{}-adminer", &instance_label),
         &format!("{}-wordpress", &instance_label),
         &home_dir,
     ).await?;
@@ -286,12 +318,21 @@ pub async fn create_instance(
         .expose(nginx_port, "tcp", nginx_port)
         .build();
 
+    let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
+        .env(adminer_env_vars)
+        .labels(&labels)
+        .name(&format!("{}-adminer", instance_label))
+        .expose(8080, "tcp", adminer_port)
+        .build();
+
     let mut instance = Instance {
         container_ids: Vec::new(),
         uuid: instance_label.to_string(),
         status: InstanceStatus::Unknown,
         container_statuses: HashMap::new(),
-        nginx_port
+        nginx_port,
+        adminer_port,
     };
 
     let (mysql_id, mysql_status) = create_container(docker, mysql_options, "MySQL", &mut container_ids).await?;
@@ -302,6 +343,9 @@ pub async fn create_instance(
 
     let (nginx_id, nginx_status) = create_container(docker, nginx_options, "Nginx", &mut container_ids).await?;
     instance.container_statuses.insert(nginx_id, nginx_status);
+
+    let (adminer_id, adminer_status) = create_container(docker, adminer_options, "Adminer", &mut container_ids).await?;
+    instance.container_statuses.insert(adminer_id, adminer_status);
 
     // Determine overall instance status based on container statuses
     instance.status = determine_instance_status(&instance.container_statuses);
@@ -334,6 +378,10 @@ async fn list_instances(
                                .and_then(|port| port.parse::<u32>().ok())
                                .unwrap_or(0);
 
+                    let adminer_port = labels.get("adminer_port")
+                               .and_then(|port| port.parse::<u32>().ok())
+                               .unwrap_or(0);
+
                     instances.entry(instance_label.to_string())
                         .or_insert_with(|| Instance {
                             container_ids: Vec::new(),
@@ -341,6 +389,7 @@ async fn list_instances(
                             status: InstanceStatus::Stopped,
                             container_statuses: HashMap::new(),
                             nginx_port,
+                            adminer_port,
                         })
                         .container_ids.push(container.id);
                 }

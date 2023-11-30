@@ -11,6 +11,7 @@ const NETWORK_NAME: &str = "wp-network";
 const WORDPRESS_IMAGE: &str = "wordpress:latest";
 const NGINX_IMAGE: &str = "nginx:latest";
 const MYSQL_IMAGE: &str = "mysql:latest";
+const ADMINER_IMAGE: &str = "adminer:latest";
 
 /// Check if a Docker image exists locally.
 ///
@@ -104,6 +105,7 @@ fn rocket() -> _ {
                     pull_docker_image_if_not_exists(WORDPRESS_IMAGE).await?;
                     pull_docker_image_if_not_exists(NGINX_IMAGE).await?;
                     pull_docker_image_if_not_exists(MYSQL_IMAGE).await?;
+                    pull_docker_image_if_not_exists(ADMINER_IMAGE).await?;
                     Ok::<_, shiplift::errors::Error>(())
                 }
             )
