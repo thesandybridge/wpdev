@@ -46,7 +46,6 @@ pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<
     }
 }
 
-
 #[post("/instances/create", data = "<env_vars>")]
 pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) -> Result<Json<Instance>, Custom<String>> {
     let docker = Docker::new();
@@ -64,19 +63,12 @@ pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) 
         &uuid,
         env_vars
     ).await {
-        Ok(container_ids) => {
-            let instance = Instance {
-                container_ids,
-                uuid,
-                status: manager::InstanceStatus::Stopped,
-                container_statuses: HashMap::new(),
-            };
+        Ok(instance) => {
             Ok(Json(instance))
         },
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
-
 
 #[post("/instances/<instance_uuid>/start")]
 pub async fn start_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {

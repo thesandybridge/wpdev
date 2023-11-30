@@ -4,8 +4,6 @@ use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
 use std::error::Error;
 use log::{info, error};
-use std::path::Path;
-use std::io;
 use std::collections::HashMap;
 use rocket::http::Status;
 use rocket::response::status::Custom;
@@ -160,6 +158,33 @@ pub async fn create_network_if_not_exists(
     }
 }
 
+
+async fn create_container(
+    docker: &Docker,
+    options: ContainerOptions,
+    container_type: &str,
+    container_ids: &mut Vec<String>,
+) -> Result<(String, ContainerStatus), Box<dyn std::error::Error>> {
+    match docker.containers().create(&options).await {
+        Ok(container) => {
+            container_ids.push(container.id.clone());
+            log::info!("{} container successfully created: {:?}", container_type, container);
+
+            match fetch_container_status(docker, &container.id).await {
+                Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
+                Err(err) => {
+                    log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
+                    Err(err)
+                }
+            }
+        }
+        Err(err) => {
+            log::error!("Error creating {} container: {:?}", container_type, err);
+            Err(err.into())
+        }
+    }
+}
+
 /// Create docker docker containers that are grouped by a unique
 /// identifier.
 ///
@@ -174,7 +199,7 @@ pub async fn create_instance(
     network_name: &str,
     instance_label: &str,
     user_env_vars: ContainerEnvVars,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+) -> Result<Instance, Box<dyn std::error::Error>> {
     let config = loader::read_or_create_config().await?;
     let mut container_ids = Vec::new();
     let home_dir = dirs::home_dir().ok_or("Home directory not found")?;
@@ -236,11 +261,26 @@ pub async fn create_instance(
         .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
         .build();
 
-    crate::create_container!(docker, mysql_options, "MySQL", container_ids)?;
-    crate::create_container!(docker, wordpress_options, "Wordpress", container_ids)?;
-    crate::create_container!(docker, nginx_options, "Nginx", container_ids)?;
+    let mut instance = Instance {
+        container_ids: Vec::new(),
+        uuid: instance_label.to_string(),
+        status: InstanceStatus::Unknown,
+        container_statuses: HashMap::new(),
+    };
 
-    Ok(container_ids)
+    let (mysql_id, mysql_status) = create_container(docker, mysql_options, "MySQL", &mut container_ids).await?;
+    instance.container_statuses.insert(mysql_id, mysql_status);
+
+    let (wordpress_id, wordpress_status) = create_container(docker, wordpress_options, "Wordpress", &mut container_ids).await?;
+    instance.container_statuses.insert(wordpress_id, wordpress_status);
+
+    let (nginx_id, nginx_status) = create_container(docker, nginx_options, "Nginx", &mut container_ids).await?;
+    instance.container_statuses.insert(nginx_id, nginx_status);
+
+    // Determine overall instance status based on container statuses
+    instance.status = determine_instance_status(&instance.container_statuses);
+
+    Ok(instance)
 }
 
 /// List all instances that are currently running.
@@ -316,7 +356,22 @@ pub async fn list_running_instances(
    list_instances(docker, network_name, containers).await
 }
 
-pub async fn fetch_container_status(docker: &Docker, container_id: &str) -> Result<Option<ContainerStatus>, Box<dyn Error>> {
+#[derive(Debug)]
+struct CustomError(String);
+
+impl std::error::Error for CustomError {}
+
+impl std::fmt::Display for CustomError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+pub async fn fetch_container_status(
+    docker: &Docker,
+    container_id: &str
+    ) ->
+Result<Option<ContainerStatus>, Box<dyn Error + Send>> {
     match docker.containers().get(container_id).inspect().await {
         Ok(container_info) => {
             let status = match container_info.state.status.as_str() {
