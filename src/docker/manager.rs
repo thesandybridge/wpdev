@@ -28,14 +28,12 @@ pub struct Instance {
 
 #[derive(Deserialize)]
 pub struct ContainerEnvVars {
-    mysql: Option<HashMap<String, String>>,
     wordpress: Option<HashMap<String, String>>,
 }
 
 impl Default for ContainerEnvVars {
     fn default() -> Self {
         ContainerEnvVars {
-            mysql: None,
             wordpress: None,
         }
     }
