@@ -69,14 +69,9 @@ pub async fn start_instance(instance_uuid: &String) -> Result<Json, AnyhowError>
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
         wpdev_core::docker_service::ContainerOperation::Start,
-        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
-        Ok(mut statuses) => {
-            if let Some((id, status)) = statuses.pop() {
-                Ok(serde_json::to_value((id, status))?)
-            } else {
-                Err(AnyhowError::msg("Instance status not found"))
-            }
+        Ok(instance) => {
+            Ok(serde_json::to_value(instance)?)
         }
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -89,14 +84,9 @@ pub async fn stop_instance(instance_uuid: &String) -> Result<Json, AnyhowError> 
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
         wpdev_core::docker_service::ContainerOperation::Stop,
-        Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
-        Ok(mut statuses) => {
-            if let Some((id, status)) = statuses.pop() {
-                Ok(serde_json::to_value((id, status))?)
-            } else {
-                Err(AnyhowError::msg("Instance status not found"))
-            }
+        Ok(instance) => {
+            Ok(serde_json::to_value(instance)?)
         }
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -109,14 +99,9 @@ pub async fn restart_instance(instance_uuid: &String) -> Result<Json, AnyhowErro
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
         wpdev_core::docker_service::ContainerOperation::Restart,
-        Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
-        Ok(mut statuses) => {
-            if let Some((id, status)) = statuses.pop() {
-                Ok(serde_json::to_value((id, status))?)
-            } else {
-                Err(AnyhowError::msg("Instance status not found"))
-            }
+        Ok(instance) => {
+            Ok(serde_json::to_value(instance)?)
         }
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -129,14 +114,9 @@ pub async fn delete_instance(instance_uuid: &String) -> Result<Json, AnyhowError
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
         wpdev_core::docker_service::ContainerOperation::Delete,
-        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
-        Ok(mut statuses) => {
-            if let Some((id, status)) = statuses.pop() {
-                Ok(serde_json::to_value((id, status))?)
-            } else {
-                Err(AnyhowError::msg("Instance status not found"))
-            }
+        Ok(instance) => {
+            Ok(serde_json::to_value(instance)?)
         }
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -149,76 +129,58 @@ pub async fn inspect_instance(instance_uuid: &String) -> Result<Json, AnyhowErro
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
         wpdev_core::docker_service::ContainerOperation::Inspect,
-        None,
     ).await {
-        Ok(mut statuses) => {
-            if let Some((id, status)) = statuses.pop() {
-                Ok(serde_json::to_value((id, status))?)
-            } else {
-                Err(AnyhowError::msg("Instance status not found"))
-            }
+        Ok(instance) => {
+            Ok(serde_json::to_value(instance)?)
         }
         Err(e) => Err(AnyhowError::from(e)),
     }
 }
 
-pub async fn start_all_instances() -> Result<Json, AnyhowError> {
+pub async fn start_all_instances() -> Result<(), AnyhowError> {
     let docker = Docker::new();
-    match wpdev_core::docker_service::instance_handler(
+    wpdev_core::docker_service::instance_handler(
         &docker,
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::All,
         wpdev_core::docker_service::ContainerOperation::Start,
-        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
-    ).await {
-        Ok(statuses) => Ok(serde_json::to_value(statuses)?),
-        Err(e) => Err(AnyhowError::from(e)),
-    }
+    ).await?;
+    Ok(())
 }
 
-pub async fn restart_all_instances() -> Result<Json, AnyhowError> {
+pub async fn restart_all_instances() -> Result<(), AnyhowError> {
     let docker = Docker::new();
-    match wpdev_core::docker_service::instance_handler(
+    wpdev_core::docker_service::instance_handler(
         &docker,
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::All,
         wpdev_core::docker_service::ContainerOperation::Restart,
-        Some(wpdev_core::docker_service::InstanceStatus::Running),
-    ).await {
-        Ok(statuses) => Ok(serde_json::to_value(statuses)?),
-        Err(e) => Err(AnyhowError::from(e)),
-    }
+    ).await?;
+    Ok(())
 }
 
-pub async fn stop_all_instances() -> Result<Json, AnyhowError> {
+pub async fn stop_all_instances() -> Result<(), AnyhowError> {
     let docker = Docker::new();
-    match wpdev_core::docker_service::instance_handler(
+    wpdev_core::docker_service::instance_handler(
         &docker,
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::All,
         wpdev_core::docker_service::ContainerOperation::Stop,
-        Some(wpdev_core::docker_service::InstanceStatus::Running),
-    ).await {
-        Ok(statuses) => Ok(serde_json::to_value(statuses)?),
-        Err(e) => Err(AnyhowError::from(e)),
-    }
+    ).await?;
+    Ok(())
 }
 
-pub async fn delete_all_instances() -> Result<Json, AnyhowError> {
+pub async fn delete_all_instances() -> Result<(), AnyhowError> {
     let docker = Docker::new();
-    match wpdev_core::docker_service::instance_handler(
+
+    wpdev_core::docker_service::instance_handler(
         &docker,
         wpdev_core::NETWORK_NAME,
         wpdev_core::docker_service::InstanceSelection::All,
         wpdev_core::docker_service::ContainerOperation::Delete,
-        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
-    ).await {
-        Ok(statuses) => Ok(serde_json::to_value(statuses)?),
-        Err(e) => Err(AnyhowError::from(e)),
-    }?;
+    ).await?;
 
-    match purge_instances(wpdev_core::docker_service::InstanceSelection::All).await {
-        Ok(_) => Ok(serde_json::to_value("All instances purged")?),
-        Err(e) => Err(AnyhowError::from(e)),
-    }
+    purge_instances(wpdev_core::docker_service::InstanceSelection::All).await?;
+
+    Ok(())
 }

@@ -19,7 +19,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::config::{self, AppConfig};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Instance {
     pub container_ids: Vec<String>,
     pub uuid: String,
@@ -351,7 +351,7 @@ pub async fn create_instance(
     let mut instance = Instance {
         container_ids: Vec::new(),
         uuid: instance_label.to_string(),
-        status: InstanceStatus::Unknown,
+        status: InstanceStatus::Stopped,
         container_statuses: HashMap::new(),
         nginx_port,
         adminer_port,
@@ -375,13 +375,6 @@ pub async fn create_instance(
     Ok(instance)
 }
 
-/// List all instances that are currently running.
-///
-/// # Arguments
-///
-/// * `docker` -
-/// * `network_name` - [TODO:description]
-/// * `containers` - [TODO:description]
 async fn list_instances(
     docker: &Docker,
     network_name: &str,
@@ -390,36 +383,49 @@ async fn list_instances(
     let mut instances: HashMap<String, Instance> = HashMap::new();
 
     for container in containers {
-        let details = docker.containers().get(&container.id).inspect().await?;
-        let network_settings = &details.network_settings;
+        match docker.containers().get(&container.id).inspect().await {
+            Ok(details) => {
+                if details.network_settings.networks.contains_key(network_name) {
+                    if let Some(labels) = &details.config.labels {
+                        if let Some(instance_label) = labels.get("instance") {
+                            let instance = instances.entry(instance_label.to_string())
+                                .or_insert_with(|| create_new_instance(instance_label, labels));
 
-        if let Some(labels) = &details.config.labels {
-            if network_settings.networks.contains_key(network_name) {
-                if let Some(instance_label) = labels.get("instance") {
-                    let nginx_port = labels.get("nginx_port")
-                               .and_then(|port| port.parse::<u32>().ok())
-                               .unwrap_or(0);
-
-                    let adminer_port = labels.get("adminer_port")
-                               .and_then(|port| port.parse::<u32>().ok())
-                               .unwrap_or(0);
-
-                    instances.entry(instance_label.to_string())
-                        .or_insert_with(|| Instance {
-                            container_ids: Vec::new(),
-                            uuid: instance_label.to_string(),
-                            status: InstanceStatus::Stopped,
-                            container_statuses: HashMap::new(),
-                            nginx_port,
-                            adminer_port,
-                        })
-                        .container_ids.push(container.id);
+                            instance.container_ids.push(container.id);
+                        }
+                    }
                 }
+            },
+            Err(e) => {
+                // Log the error or handle it appropriately
+                eprintln!("Error inspecting container {}: {}", container.id, e);
             }
         }
     }
 
     Ok(instances)
+}
+
+/// Creates a new instance with initial settings based on provided labels.
+fn create_new_instance(instance_label: &str, labels: &HashMap<String, String>) -> Instance {
+    let nginx_port = parse_port(labels.get("nginx_port"));
+    let adminer_port = parse_port(labels.get("adminer_port"));
+
+    Instance {
+        container_ids: Vec::new(),
+        uuid: instance_label.to_string(),
+        status: InstanceStatus::Unknown,
+        container_statuses: HashMap::new(),
+        nginx_port,
+        adminer_port,
+    }
+}
+
+/// Parses a port from a label, providing a default value if necessary.
+fn parse_port(port_label: Option<&String>) -> u32 {
+    port_label
+        .and_then(|port| port.parse::<u32>().ok())
+        .unwrap_or(0)
 }
 
 /// List all instances.
@@ -505,35 +511,45 @@ pub async fn handle_instance(
     network_name: &str,
     instance_uuid: &str,
     operation: ContainerOperation,
-    status: Option<InstanceStatus>,
-) -> Result<InstanceStatus, AnyhowError> {
+) -> Result<Instance, AnyhowError> {
     let instances = list_all_instances(docker, network_name).await?;
 
-    let running_instances = list_running_instances(docker, network_name).await?;
-
-    let target_instances = match status {
-        Some(InstanceStatus::Running) => &running_instances,
-        _ => &instances,
-    };
-
-    if let Some(instance) = target_instances.get(instance_uuid) {
+    if let Some(mut instance) = instances.get(instance_uuid).cloned() {
         let mut container_statuses = HashMap::new();
         for container_id in &instance.container_ids {
+            let current_container_status = fetch_container_status(docker, container_id).await?;
             match operation {
-                ContainerOperation::Start if status != Some(InstanceStatus::Running) => {
-                    docker.containers().get(container_id).start().await?;
-                    info!("{} container successfully started", container_id);
+                ContainerOperation::Start => {
+                    if current_container_status != Some(ContainerStatus::Running) {
+                        docker.containers().get(container_id).start().await?;
+                        info!("{} container successfully started", container_id);
+                    } else {
+                        info!("{} container is already running, skipping start operation", container_id);
+                    }
                 }
-                ContainerOperation::Stop | ContainerOperation::Restart if status == Some(InstanceStatus::Running) => {
-                    if operation == ContainerOperation::Stop {
+                ContainerOperation::Stop => {
+                    if current_container_status == Some(ContainerStatus::Running) {
                         docker.containers().get(container_id).stop(None).await?;
                         info!("{} container successfully stopped", container_id);
                     } else {
-                        docker.containers().get(container_id).restart(None).await?;
-                        info!("{} container successfully restarted", container_id);
+                        info!("{} container is already stopped, skipping stop operation", container_id);
                     }
                 }
-                ContainerOperation::Delete if status != Some(InstanceStatus::Running) => {
+                ContainerOperation::Restart => {
+                    if current_container_status == Some(ContainerStatus::Running) {
+                        docker.containers().get(container_id).restart(None).await?;
+                        info!("{} container successfully restarted", container_id);
+                    } else {
+                        info!("{} container is not running, skipping restart operation", container_id);
+                    }
+                }
+                ContainerOperation::Delete => {
+                    if current_container_status == Some(ContainerStatus::Running) {
+                        // First, stop the container if it's running
+                        docker.containers().get(container_id).stop(None).await?;
+                        info!("{} container successfully stopped before deletion", container_id);
+                    }
+                    // Then delete the container
                     docker.containers().get(container_id).delete().await?;
                     container_statuses.insert(container_id.clone(), ContainerStatus::Deleted);
                     info!("{} container successfully deleted", container_id);
@@ -542,14 +558,12 @@ pub async fn handle_instance(
                     docker.containers().get(container_id).inspect().await?;
                     info!("{} container successfully inspected", container_id);
                 }
-                _ => {
-                    info!("Operation {:?} is not valid for instance {} with status {:?}", operation, instance_uuid, status);
-                }
             }
 
-            let container_status = fetch_container_status(docker, container_id).await?;
 
-            if let Some(status) = container_status {
+            let updated_status = fetch_container_status(docker, container_id).await?;
+
+            if let Some(status) = updated_status {
                 container_statuses.insert(container_id.clone(), status);
             } else {
                 container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
@@ -557,7 +571,11 @@ pub async fn handle_instance(
         }
 
         let instance_status = determine_instance_status(&container_statuses);
-        Ok(instance_status)
+        instance.status = instance_status;
+        instance.container_statuses = container_statuses;
+
+        // Return the modified instance
+        Ok(instance)
 
     } else {
         Err(AnyhowError::msg(format!("Instance with UUID {} not found", instance_uuid)))
@@ -568,25 +586,23 @@ async fn handle_all_instances(
     docker: &Docker,
     network_name: &str,
     operation: ContainerOperation,
-    status: Option<InstanceStatus>,
-) -> Result<Vec<(String, InstanceStatus)>, AnyhowError> {
+) -> Result<Vec<Instance>, AnyhowError> {
     let instances = list_all_instances(docker, network_name).await?;
 
-    let mut statuses = Vec::new();
+    let mut instances_group = Vec::new();
 
     for (uuid, _) in instances.iter() {
-        let instance_status = handle_instance(
+        let instance = handle_instance(
             docker,
             network_name,
             uuid,
             operation.clone(),
-            status.clone(),
         ).await?;
 
-        statuses.push((uuid.clone(), instance_status));
+        instances_group.push(instance);
     }
 
-    Ok(statuses)
+    Ok(instances_group)
 }
 
 
@@ -596,15 +612,14 @@ pub async fn instance_handler(
     network_name: &str,
     instance_selection: InstanceSelection,
     operation: ContainerOperation,
-    status: Option<InstanceStatus>,
-) -> Result<Vec<(String, InstanceStatus)>, AnyhowError> {
+) -> Result<Vec<Instance>, AnyhowError> {
     match instance_selection {
         InstanceSelection::All => {
-            Ok(handle_all_instances(docker, network_name, operation, status).await?)
+            Ok(handle_all_instances(docker, network_name, operation).await?)
         }
         InstanceSelection::One(instance_uuid) => {
-            let instance_status = handle_instance(docker, network_name, &instance_uuid, operation, status).await?;
-            Ok(vec![(instance_uuid.to_string(), instance_status)])
+            let instance = handle_instance(docker, network_name, &instance_uuid, operation).await?;
+            Ok(vec![instance])
         }
     }
 }

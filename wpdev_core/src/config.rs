@@ -4,7 +4,7 @@ use futures::stream::StreamExt;
 
 use dirs;
 
-use anyhow::Result;
+use anyhow::{Result, Error as AnyhowError};
 use tokio::fs::{self};
 
 use log::info;
@@ -13,6 +13,8 @@ use log::info;
 pub struct AppConfig {
     pub custom_root: String,
     pub docker_images: Vec<String>,
+    pub enable_logging: bool,
+    pub enable_frontend: bool,
 }
 
 impl Default for AppConfig {
@@ -25,6 +27,8 @@ impl Default for AppConfig {
                 "mysql:latest".into(),
                 "adminer:latest".into(),
             ],
+            enable_logging: true,
+            enable_frontend: false
         }
     }
 }
@@ -92,7 +96,7 @@ pub async fn image_exists(image_name: &str) -> bool {
 /// ```
 /// pull_docker_image_if_not_exists("wordpress:latest").await;
 /// ```
-pub async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
+async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
     if !image_exists(image_name).await {
         let docker = Docker::new();
         let mut pull_options = PullOptions::builder();
@@ -129,9 +133,16 @@ pub async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shi
     Ok(())
 }
 
-pub async fn pull_required_docker_images(config: &AppConfig) -> Result<()> {
-    for image_name in &config.docker_images {
-        pull_docker_image_if_not_exists(image_name).await?;
+pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
+    let config = read_or_create_config().await?;
+
+    if config.docker_images.is_empty() {
+        return Ok(());
     }
+
+    for image_name in config.docker_images {
+        pull_docker_image_if_not_exists(&image_name).await?;
+    }
+
     Ok(())
 }

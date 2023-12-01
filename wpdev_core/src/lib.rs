@@ -1,5 +1,6 @@
 pub mod docker_service;
 pub mod config;
+pub mod utils;
 
 pub const NETWORK_NAME: &str = "wp-network";
 pub const WORDPRESS_IMAGE: &str = "wordpress:latest";
