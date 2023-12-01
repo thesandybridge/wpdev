@@ -217,6 +217,8 @@ async fn generate_nginx_config(
     Ok(nginx_config_path)
 }
 
+type ContainerInfo = (ContainerOptions, &'static str);
+
 /// Create docker docker containers that are grouped by a unique
 /// identifier.
 ///
@@ -339,17 +341,17 @@ pub async fn create_instance(
         adminer_port,
     };
 
-    let (mysql_id, mysql_status) = create_container(docker, mysql_options, "MySQL", &mut container_ids).await?;
-    instance.container_statuses.insert(mysql_id, mysql_status);
+    let containers_to_create: Vec<ContainerInfo> = vec![
+        (mysql_options, "MySQL"),
+        (wordpress_options, "Wordpress"),
+        (nginx_options, "Nginx"),
+        (adminer_options, "Adminer"),
+    ];
 
-    let (wordpress_id, wordpress_status) = create_container(docker, wordpress_options, "Wordpress", &mut container_ids).await?;
-    instance.container_statuses.insert(wordpress_id, wordpress_status);
-
-    let (nginx_id, nginx_status) = create_container(docker, nginx_options, "Nginx", &mut container_ids).await?;
-    instance.container_statuses.insert(nginx_id, nginx_status);
-
-    let (adminer_id, adminer_status) = create_container(docker, adminer_options, "Adminer", &mut container_ids).await?;
-    instance.container_statuses.insert(adminer_id, adminer_status);
+    for (options, container_type) in containers_to_create {
+        let (container_id, container_status) = create_container(docker, options, container_type, &mut container_ids).await?;
+        instance.container_statuses.insert(container_id, container_status);
+    }
 
     // Determine overall instance status based on container statuses
     instance.status = determine_instance_status(&instance.container_statuses);
