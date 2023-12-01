@@ -1,5 +1,4 @@
 use std::net::{TcpListener, SocketAddr};
-use std::error::Error;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -15,7 +14,7 @@ use log::{info, error};
 use rocket::http::Status;
 use rocket::response::status::Custom;
 
-use anyhow::Result;
+use anyhow::{Result, Error as AnyhowError};
 
 use tokio::fs;
 
@@ -138,7 +137,7 @@ async fn create_container(
     options: ContainerOptions,
     container_type: &str,
     container_ids: &mut Vec<String>,
-) -> Result<(String, ContainerStatus), Box<dyn std::error::Error>> {
+) -> Result<(String, ContainerStatus), AnyhowError> {
     match docker.containers().create(&options).await {
         Ok(container) => {
             container_ids.push(container.id.clone());
@@ -148,7 +147,7 @@ async fn create_container(
                 Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
                 Err(err) => {
                     log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
-                    Err(err)
+                    Err(err.into())
                 }
             }
         }
@@ -454,9 +453,8 @@ impl std::fmt::Display for CustomError {
 
 pub async fn fetch_container_status(
     docker: &Docker,
-    container_id: &str
-    ) ->
-Result<Option<ContainerStatus>, Box<dyn Error + Send>> {
+    container_id: &str,
+) -> Result<Option<ContainerStatus>, DockerError> {
     match docker.containers().get(container_id).inspect().await {
         Ok(container_info) => {
             let status = match container_info.state.status.as_str() {
@@ -467,10 +465,9 @@ Result<Option<ContainerStatus>, Box<dyn Error + Send>> {
             Ok(Some(status))
         },
         Err(DockerError::Fault { code, .. }) if code.as_u16() == 404 => {
-            // Container not found, treat as a valid case
             Ok(None)
         },
-        Err(e) => Err(Box::new(e))
+        Err(e) => Err(e)
     }
 }
 
@@ -491,18 +488,10 @@ pub async fn handle_instance(
     instance_uuid: &str,
     operation: ContainerOperation,
     status: Option<InstanceStatus>,
-) -> Result<InstanceStatus, Custom<String>> {
-    let instances = list_all_instances(docker, network_name).await
-        .map_err(|e| {
-            error!("Error listing instances: {}", e);
-            Custom(Status::InternalServerError, format!("Error listing instances: {}", e))
-        })?;
+) -> Result<InstanceStatus, AnyhowError> {
+    let instances = list_all_instances(docker, network_name).await?;
 
-    let running_instances = list_running_instances(docker, network_name).await
-        .map_err(|e| {
-            error!("Error listing running instances: {}", e);
-            Custom(Status::InternalServerError, format!("Error listing running instances: {}", e))
-        })?;
+    let running_instances = list_running_instances(docker, network_name).await?;
 
     let target_instances = match status {
         Some(InstanceStatus::Running) => &running_instances,
@@ -514,45 +503,25 @@ pub async fn handle_instance(
         for container_id in &instance.container_ids {
             match operation {
                 ContainerOperation::Start if status != Some(InstanceStatus::Running) => {
-                    docker.containers().get(container_id).start().await
-                        .map_err(|err| {
-                            error!("Error starting container {}: {}", container_id, err);
-                            Custom(Status::InternalServerError, format!("Error starting container {}: {}", container_id, err))
-                        })?;
+                    docker.containers().get(container_id).start().await?;
                     info!("{} container successfully started", container_id);
                 }
                 ContainerOperation::Stop | ContainerOperation::Restart if status == Some(InstanceStatus::Running) => {
                     if operation == ContainerOperation::Stop {
-                        docker.containers().get(container_id).stop(None).await
-                            .map_err(|err| {
-                                error!("Error stopping container {}: {}", container_id, err);
-                                Custom(Status::InternalServerError, format!("Error stopping container {}: {}", container_id, err))
-                            })?;
+                        docker.containers().get(container_id).stop(None).await?;
                         info!("{} container successfully stopped", container_id);
                     } else {
-                        docker.containers().get(container_id).restart(None).await
-                            .map_err(|err| {
-                                error!("Error restarting container {}: {}", container_id, err);
-                                Custom(Status::InternalServerError, format!("Error restarting container {}: {}", container_id, err))
-                            })?;
+                        docker.containers().get(container_id).restart(None).await?;
                         info!("{} container successfully restarted", container_id);
                     }
                 }
                 ContainerOperation::Delete if status != Some(InstanceStatus::Running) => {
-                    docker.containers().get(container_id).delete().await
-                        .map_err(|err| {
-                            error!("Error deleting container {}: {}", container_id, err);
-                            Custom(Status::InternalServerError, format!("Error deleting container {}: {}", container_id, err))
-                        })?;
+                    docker.containers().get(container_id).delete().await?;
                     container_statuses.insert(container_id.clone(), ContainerStatus::Deleted);
                     info!("{} container successfully deleted", container_id);
                 }
                 ContainerOperation::Inspect => {
-                    docker.containers().get(container_id).inspect().await
-                        .map_err(|err| {
-                            error!("Error inspecting container {}: {}", container_id, err);
-                            Custom(Status::InternalServerError, format!("Error inspecting container {}: {}", container_id, err))
-                        })?;
+                    docker.containers().get(container_id).inspect().await?;
                     info!("{} container successfully inspected", container_id);
                 }
                 _ => {
@@ -560,8 +529,7 @@ pub async fn handle_instance(
                 }
             }
 
-            let container_status = fetch_container_status(docker, container_id).await
-                .map_err(|err| Custom(Status::InternalServerError, format!("Error fetching status for container {}: {}", container_id, err)))?;
+            let container_status = fetch_container_status(docker, container_id).await?;
 
             if let Some(status) = container_status {
                 container_statuses.insert(container_id.clone(), status);
@@ -574,7 +542,7 @@ pub async fn handle_instance(
         Ok(instance_status)
 
     } else {
-        Err(Custom(Status::NotFound, format!("Instance with UUID {} not found", instance_uuid)))
+        Err(AnyhowError::msg(format!("Instance with UUID {} not found", instance_uuid)))
     }
 }
 
@@ -583,9 +551,8 @@ async fn handle_all_instances(
     network_name: &str,
     operation: ContainerOperation,
     status: Option<InstanceStatus>,
-) -> Result<Vec<(String, InstanceStatus)>, Custom<String>> {
-    let instances = list_all_instances(docker, network_name).await
-        .map_err(|e| Custom(Status::InternalServerError, format!("Error listing instances: {}", e)))?;
+) -> Result<Vec<(String, InstanceStatus)>, AnyhowError> {
+    let instances = list_all_instances(docker, network_name).await?;
 
     let mut statuses = Vec::new();
 
@@ -596,8 +563,7 @@ async fn handle_all_instances(
             uuid,
             operation.clone(),
             status.clone(),
-        ).await
-        .map_err(|e| Custom(Status::InternalServerError, format!("Error handling instance {}: {:?}", uuid, e)))?;
+        ).await?;
 
         statuses.push((uuid.clone(), instance_status));
     }
@@ -613,10 +579,10 @@ pub async fn instance_handler(
     instance_selection: InstanceSelection,
     operation: ContainerOperation,
     status: Option<InstanceStatus>,
-) -> Result<Vec<(String, InstanceStatus)>, Custom<String>> {
+) -> Result<Vec<(String, InstanceStatus)>, AnyhowError> {
     match instance_selection {
         InstanceSelection::All => {
-            handle_all_instances(docker, network_name, operation, status).await
+            Ok(handle_all_instances(docker, network_name, operation, status).await?)
         }
         InstanceSelection::One(instance_uuid) => {
             let instance_status = handle_instance(docker, network_name, &instance_uuid, operation, status).await?;

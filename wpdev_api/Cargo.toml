@@ -10,6 +10,7 @@ shiplift = "0.7.0"
 log = "0.4.20"
 futures = "0.3.29"
 tokio = "1.34.0"
+anyhow = "1.0.75"
 
 [dependencies.uuid]
 version = "1.6.1"

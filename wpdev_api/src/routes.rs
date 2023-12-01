@@ -91,7 +91,7 @@ pub async fn start_instance(instance_uuid: &str) -> Result<Json<(String, wpdev_c
                 Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
             }
         }
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string()))
     }
 }
 
@@ -112,7 +112,7 @@ pub async fn stop_instance(instance_uuid: &str) -> Result<Json<(String, wpdev_co
                 Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
             }
         }
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -133,7 +133,7 @@ pub async fn restart_instance(instance_uuid: &str) -> Result<Json<(String, wpdev
                 Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
             }
         }
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -148,7 +148,7 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> 
         Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(_) => Ok(()),
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -163,7 +163,7 @@ pub async fn start_all_instances() -> Result<Json<Vec<(String, wpdev_core::docke
         Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(statuses) => Ok(Json(statuses)),
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -178,7 +178,7 @@ pub async fn restart_all_instances() -> Result<Json<Vec<(String, wpdev_core::doc
         Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
         Ok(statuses) => Ok(Json(statuses)),
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -193,7 +193,7 @@ pub async fn stop_all_instances() -> Result<Json<Vec<(String, wpdev_core::docker
         Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
         Ok(statuses) => Ok(Json(statuses)),
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -208,10 +208,10 @@ pub async fn delete_all_instance() -> Result<(), Custom<String>> {
         Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(_) => Ok(()),
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }?;
 
-    purge_instances(wpdev_core::docker_service::InstanceSelection::All).await
+    Ok(purge_instances(wpdev_core::docker_service::InstanceSelection::All).await?)
 }
 
 #[post("/instances/<instance_uuid>/inspect")]
@@ -231,7 +231,7 @@ pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<(String, wpdev
                 Err(Custom(Status::InternalServerError, "Instance status not found".to_string()))
             }
         }
-        Err(e) => Err(e),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 
 }
