@@ -2,25 +2,30 @@ use rocket::get;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status::Custom;
-use crate::docker::manager::{
+
+use shiplift::Docker;
+
+use uuid::Uuid;
+
+use log::{info, error};
+
+use std::collections::HashMap;
+
+use wpdev_core::docker_service::{
     self,
     purge_instances,
+    Instance,
+    ContainerStatus,
 };
-use crate::docker::manager::Instance;
-use crate::docker::manager::ContainerStatus;
-use shiplift::Docker;
-use uuid::Uuid;
-use std::collections::HashMap;
-use log::{info, error};
 
 #[get("/instances")]
 pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<String>> {
     let docker = Docker::new();
-    match manager::list_all_instances(&docker, crate::NETWORK_NAME).await {
+    match docker_service::list_all_instances(&docker, wpdev_core::NETWORK_NAME).await {
         Ok(mut instances) => {
             for (_, instance) in instances.iter_mut() {
                 for container_id in &instance.container_ids {
-                    match manager::fetch_container_status(&docker, container_id).await {
+                    match docker_service::fetch_container_status(&docker, container_id).await {
                         Ok(Some(status)) => {
                             instance.container_statuses.insert(container_id.clone(), status);
                         },
@@ -32,7 +37,7 @@ pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<
                         }
                     };
                 }
-                instance.status = manager::determine_instance_status(&instance.container_statuses);
+                instance.status = docker_service::determine_instance_status(&instance.container_statuses);
             }
 
             info!("Successfully listed instances");
@@ -46,19 +51,19 @@ pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<
 }
 
 #[post("/instances/create", data = "<env_vars>")]
-pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) -> Result<Json<Instance>, Custom<String>> {
+pub async fn create_instance(env_vars: Option<Json<wpdev_core::docker_service::ContainerEnvVars>>) -> Result<Json<Instance>, Custom<String>> {
     let docker = Docker::new();
     let uuid = Uuid::new_v4().to_string();
 
     // Default environment variables if no data is provided
-    let default_env_vars = manager::ContainerEnvVars::default(); // Ensure you have a default implementation
+    let default_env_vars = wpdev_core::docker_service::ContainerEnvVars::default(); // Ensure you have a default implementation
 
     // Use the provided env_vars if available, otherwise use default
     let env_vars = env_vars.map_or(default_env_vars, |json| json.into_inner());
 
-    match manager::create_instance(
+    match wpdev_core::docker_service::create_instance(
         &docker,
-        crate::NETWORK_NAME,
+        wpdev_core::NETWORK_NAME,
         &uuid,
         env_vars
     ).await {
@@ -70,14 +75,14 @@ pub async fn create_instance(env_vars: Option<Json<manager::ContainerEnvVars>>) 
 }
 
 #[post("/instances/<instance_uuid>/start")]
-pub async fn start_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
+pub async fn start_instance(instance_uuid: &str) -> Result<Json<(String, wpdev_core::docker_service::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::One(instance_uuid.to_string()),
-        manager::ContainerOperation::Start,
-        Some(manager::InstanceStatus::Stopped),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
+        wpdev_core::docker_service::ContainerOperation::Start,
+        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(mut statuses) => {
             if let Some((id, status)) = statuses.pop() {
@@ -91,14 +96,14 @@ pub async fn start_instance(instance_uuid: &str) -> Result<Json<(String, manager
 }
 
 #[post("/instances/<instance_uuid>/stop")]
-pub async fn stop_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
+pub async fn stop_instance(instance_uuid: &str) -> Result<Json<(String, wpdev_core::docker_service::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::One(instance_uuid.to_string()),
-        manager::ContainerOperation::Stop,
-        Some(manager::InstanceStatus::Running),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
+        wpdev_core::docker_service::ContainerOperation::Stop,
+        Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
         Ok(mut statuses) => {
             if let Some((id, status)) = statuses.pop() {
@@ -112,14 +117,14 @@ pub async fn stop_instance(instance_uuid: &str) -> Result<Json<(String, manager:
 }
 
 #[post("/instances/<instance_uuid>/restart")]
-pub async fn restart_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
+pub async fn restart_instance(instance_uuid: &str) -> Result<Json<(String, wpdev_core::docker_service::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::One(instance_uuid.to_string()),
-        manager::ContainerOperation::Restart,
-        Some(manager::InstanceStatus::Running),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
+        wpdev_core::docker_service::ContainerOperation::Restart,
+        Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
         Ok(mut statuses) => {
             if let Some((id, status)) = statuses.pop() {
@@ -135,12 +140,12 @@ pub async fn restart_instance(instance_uuid: &str) -> Result<Json<(String, manag
 #[post("/instances/<instance_uuid>/delete")]
 pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::One(instance_uuid.to_string()),
-        manager::ContainerOperation::Delete,
-        Some(manager::InstanceStatus::Stopped),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
+        wpdev_core::docker_service::ContainerOperation::Delete,
+        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
@@ -148,14 +153,14 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> 
 }
 
 #[post("/instances/start_all")]
-pub async fn start_all_instances() -> Result<Json<Vec<(String, manager::InstanceStatus)>>, Custom<String>> {
+pub async fn start_all_instances() -> Result<Json<Vec<(String, wpdev_core::docker_service::InstanceStatus)>>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::All,
-        manager::ContainerOperation::Start,
-        Some(manager::InstanceStatus::Stopped),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::All,
+        wpdev_core::docker_service::ContainerOperation::Start,
+        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(statuses) => Ok(Json(statuses)),
         Err(e) => Err(e),
@@ -163,14 +168,14 @@ pub async fn start_all_instances() -> Result<Json<Vec<(String, manager::Instance
 }
 
 #[post("/instances/restart_all")]
-pub async fn restart_all_instances() -> Result<Json<Vec<(String, manager::InstanceStatus)>>, Custom<String>> {
+pub async fn restart_all_instances() -> Result<Json<Vec<(String, wpdev_core::docker_service::InstanceStatus)>>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::All,
-        manager::ContainerOperation::Restart,
-        Some(manager::InstanceStatus::Running),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::All,
+        wpdev_core::docker_service::ContainerOperation::Restart,
+        Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
         Ok(statuses) => Ok(Json(statuses)),
         Err(e) => Err(e),
@@ -178,14 +183,14 @@ pub async fn restart_all_instances() -> Result<Json<Vec<(String, manager::Instan
 }
 
 #[post("/instances/stop_all")]
-pub async fn stop_all_instances() -> Result<Json<Vec<(String, manager::InstanceStatus)>>, Custom<String>> {
+pub async fn stop_all_instances() -> Result<Json<Vec<(String, wpdev_core::docker_service::InstanceStatus)>>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::All,
-        manager::ContainerOperation::Stop,
-        Some(manager::InstanceStatus::Running),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::All,
+        wpdev_core::docker_service::ContainerOperation::Stop,
+        Some(wpdev_core::docker_service::InstanceStatus::Running),
     ).await {
         Ok(statuses) => Ok(Json(statuses)),
         Err(e) => Err(e),
@@ -195,28 +200,28 @@ pub async fn stop_all_instances() -> Result<Json<Vec<(String, manager::InstanceS
 #[post("/instances/purge")]
 pub async fn delete_all_instance() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::All,
-        manager::ContainerOperation::Delete,
-        Some(manager::InstanceStatus::Stopped),
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::All,
+        wpdev_core::docker_service::ContainerOperation::Delete,
+        Some(wpdev_core::docker_service::InstanceStatus::Stopped),
     ).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
     }?;
 
-    purge_instances(manager::InstanceSelection::All).await
+    purge_instances(wpdev_core::docker_service::InstanceSelection::All).await
 }
 
 #[post("/instances/<instance_uuid>/inspect")]
-pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<(String, manager::InstanceStatus)>, Custom<String>> {
+pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<(String, wpdev_core::docker_service::InstanceStatus)>, Custom<String>> {
     let docker = Docker::new();
-    match manager::instance_handler(
+    match wpdev_core::docker_service::instance_handler(
         &docker,
-        crate::NETWORK_NAME,
-        manager::InstanceSelection::One(instance_uuid.to_string()),
-        manager::ContainerOperation::Inspect,
+        wpdev_core::NETWORK_NAME,
+        wpdev_core::docker_service::InstanceSelection::One(instance_uuid.to_string()),
+        wpdev_core::docker_service::ContainerOperation::Inspect,
         None
     ).await {
         Ok(mut statuses) => {

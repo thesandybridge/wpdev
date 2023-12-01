@@ -1,9 +1,10 @@
 use serde::{Serialize, Deserialize};
+
 use dirs;
+
 use anyhow::Result;
-use std::path::Path;
-use tokio::fs::{self, OpenOptions};
-use tokio::io::{self, AsyncWriteExt, BufReader, AsyncBufReadExt};
+use tokio::fs::{self};
+
 use log::info;
 
 #[derive(Serialize, Deserialize)]

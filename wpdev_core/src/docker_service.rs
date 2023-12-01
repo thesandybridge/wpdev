@@ -1,20 +1,27 @@
-use shiplift::{Docker, NetworkCreateOptions, Error as DockerError};
 use std::net::{TcpListener, SocketAddr};
+use std::error::Error;
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use shiplift::{Docker, NetworkCreateOptions, Error as DockerError};
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
-use std::error::Error;
+
+use dirs;
+
 use log::{info, error};
-use std::collections::HashMap;
+
 use rocket::http::Status;
 use rocket::response::status::Custom;
+
 use anyhow::Result;
-use std::path::PathBuf;
-use dirs;
+
 use tokio::fs;
-use crate::config::loader;
+
 use serde::{Serialize, Deserialize};
-use crate::config::loader::AppConfig;
+
+use crate::config::{self, AppConfig};
 
 #[derive(Serialize, Deserialize)]
 pub struct Instance {
@@ -226,7 +233,7 @@ pub async fn create_instance(
     instance_label: &str,
     user_env_vars: ContainerEnvVars,
 ) -> Result<Instance, Box<dyn std::error::Error>> {
-    let config = loader::read_or_create_config().await?;
+    let config = config::read_or_create_config().await?;
     let mut container_ids = Vec::new();
     let home_dir = dirs::home_dir().ok_or("Home directory not found")?;
 
