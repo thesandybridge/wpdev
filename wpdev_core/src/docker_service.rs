@@ -131,6 +131,54 @@ pub async fn create_network_if_not_exists(
     }
 }
 
+struct EnvVars {
+    adminer: Vec<String>,
+    mysql: Vec<String>,
+    wordpress: Vec<String>,
+}
+
+async fn initialize_env_vars(
+    instance_label: &str,
+    user_env_vars: &ContainerEnvVars,
+) -> Result<EnvVars, AnyhowError> {
+
+    let default_adminer_vars = HashMap::from([
+        ("ADMINER_DESIGN".to_string(), "nette".to_string()),
+        ("ADMINER_PLUGINS".to_string(), "tables-filter tinymce".to_string()),
+        ("MYSQL_PORT".to_string(), "3306".to_string()),
+        ("ADMINER_DEFAULT_SERVER".to_string(), format!("{}-mysql", instance_label).to_string()),
+        ("ADMINER_DEFAULT_USERNAME".to_string(), "wordpress".to_string()),
+        ("ADMINER_DEFAULT_PASSWORD".to_string(), "password".to_string()),
+        ("ADMINER_DEFAULT_DATABASE".to_string(), "wordpress".to_string()),
+    ]);
+
+    let default_mysql_vars = HashMap::from([
+        ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
+        ("MYSQL_DATABASE".to_string(),"wordpress".to_string()),
+        ("MYSQL_USER".to_string(),"wordpress".to_string()),
+        ("MYSQL_PASSWORD".to_string(),"password".to_string()),
+    ]);
+
+    let default_wordpress_vars = HashMap::from([
+        ("WORDPRESS_DB_HOST".to_string(), format!("{}-mysql", instance_label).to_string()),
+        ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
+        ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
+        ("WORDPRESS_DB_NAME".to_string(), "wordpress".to_string()),
+        ("WORDPRESS_TABLE_PREFIX".to_string(), "wp_".to_string()),
+        ("WORDPRESS_DEBUG".to_string(), "1".to_string()),
+        ("WORDPRESS_CONFIG_EXTRA".to_string(), "".to_string()),
+    ]);
+
+    let adminer_env_vars = merge_env_vars(default_adminer_vars, &None);
+    let mysql_env_vars = merge_env_vars(default_mysql_vars, &None);
+    let wordpress_env_vars = merge_env_vars(default_wordpress_vars, &user_env_vars.wordpress);
+
+    Ok(EnvVars {
+        adminer: adminer_env_vars,
+        mysql: mysql_env_vars,
+        wordpress: wordpress_env_vars,
+    })
+}
 
 async fn create_container(
     docker: &Docker,
@@ -238,36 +286,7 @@ pub async fn create_instance(
     let mut container_ids = Vec::new();
     let home_dir = dirs::home_dir().ok_or("Home directory not found")?;
 
-    let default_adminer_vars = HashMap::from([
-        ("ADMINER_DESIGN".to_string(), "nette".to_string()),
-        ("ADMINER_PLUGINS".to_string(), "tables-filter tinymce".to_string()),
-        ("MYSQL_PORT".to_string(), "3306".to_string()),
-        ("ADMINER_DEFAULT_SERVER".to_string(), format!("{}-mysql", instance_label).to_string()),
-        ("ADMINER_DEFAULT_USERNAME".to_string(), "wordpress".to_string()),
-        ("ADMINER_DEFAULT_PASSWORD".to_string(), "password".to_string()),
-        ("ADMINER_DEFAULT_DATABASE".to_string(), "wordpress".to_string()),
-    ]);
-
-    let default_mysql_vars = HashMap::from([
-        ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
-        ("MYSQL_DATABASE".to_string(),"wordpress".to_string()),
-        ("MYSQL_USER".to_string(),"wordpress".to_string()),
-        ("MYSQL_PASSWORD".to_string(),"password".to_string()),
-    ]);
-
-    let default_wordpress_vars = HashMap::from([
-        ("WORDPRESS_DB_HOST".to_string(), format!("{}-mysql", instance_label).to_string()),
-        ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
-        ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
-        ("WORDPRESS_DB_NAME".to_string(), "wordpress".to_string()),
-        ("WORDPRESS_TABLE_PREFIX".to_string(), "wp_".to_string()),
-        ("WORDPRESS_DEBUG".to_string(), "1".to_string()),
-        ("WORDPRESS_CONFIG_EXTRA".to_string(), "".to_string()),
-    ]);
-
-    let mysql_env_vars = merge_env_vars(default_mysql_vars, &None);
-    let wordpress_env_vars = merge_env_vars(default_wordpress_vars, &user_env_vars.wordpress);
-    let adminer_env_vars = merge_env_vars(default_adminer_vars, &None);
+    let env_vars = initialize_env_vars(instance_label, &user_env_vars).await?;
 
     create_network_if_not_exists(&docker, &network_name).await?;
 
@@ -284,7 +303,7 @@ pub async fn create_instance(
 
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .env(mysql_env_vars)
+        .env(env_vars.mysql)
         .labels(&labels)
         .name(&format!("{}-mysql", &instance_label))
         .build();
@@ -306,7 +325,7 @@ pub async fn create_instance(
 
     let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .env(wordpress_env_vars)
+        .env(env_vars.wordpress)
         .labels(&labels)
         .user("1000:1000")
         .name(&format!("{}-wordpress", &instance_label))
@@ -326,7 +345,7 @@ pub async fn create_instance(
 
     let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .env(adminer_env_vars)
+        .env(env_vars.adminer)
         .labels(&labels)
         .name(&format!("{}-adminer", instance_label))
         .expose(8080, "tcp", adminer_port)
