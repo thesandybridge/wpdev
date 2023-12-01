@@ -12,12 +12,19 @@ use log::info;
 #[derive(Serialize, Deserialize)]
 pub struct AppConfig {
     pub custom_root: String,
+    pub docker_images: Vec<String>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
             custom_root: String::from(".config/wpdev/instances"),
+            docker_images: vec![
+                "wordpress:latest".into(),
+                "nginx:latest".into(),
+                "mysql:latest".into(),
+                "adminer:latest".into(),
+            ],
         }
     }
 }
@@ -117,9 +124,14 @@ pub async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shi
                 eprintln!("Failed to pull image {}.", image_name);
             }
         }
-    } else {
-        println!("Image {} is already available locally.", image_name);
     }
 
+    Ok(())
+}
+
+pub async fn pull_required_docker_images(config: &AppConfig) -> Result<()> {
+    for image_name in &config.docker_images {
+        pull_docker_image_if_not_exists(image_name).await?;
+    }
     Ok(())
 }

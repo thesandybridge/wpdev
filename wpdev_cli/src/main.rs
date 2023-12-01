@@ -1,8 +1,9 @@
-use anyhow::Result;
+use anyhow::{Error as AnyhowError, Result};
 use tokio;
 mod commands;
 use prettytable::{Table, Row, Cell, format};
 use prettytable::row;
+use wpdev_core::config;
 
 use clap::{arg, Command};
 use serde_json;
@@ -117,7 +118,11 @@ fn cli() -> Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), AnyhowError> {
+
+    let config = config::read_or_create_config().await?;
+    config::pull_required_docker_images(&config).await?;
+
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("instances", sites_matches)) => {
