@@ -11,9 +11,6 @@ use dirs;
 
 use log::{info, error};
 
-use rocket::http::Status;
-use rocket::response::status::Custom;
-
 use anyhow::{Result, Error as AnyhowError};
 
 use tokio::fs;
@@ -206,7 +203,7 @@ async fn create_container(
     }
 }
 
-async fn find_free_port() -> Result<u32, Box<dyn std::error::Error>> {
+async fn find_free_port() -> Result<u32, AnyhowError> {
     // Bind to port 0; the OS will assign a random available port
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let socket_addr: SocketAddr = listener.local_addr()?;
@@ -222,7 +219,7 @@ async fn generate_nginx_config(
     adminer_name: &str,
     wordpress_name: &str,
     home_dir: &PathBuf
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+) -> Result<PathBuf, AnyhowError> {
     let nginx_config = format!(
         r#"
         server {{
@@ -281,10 +278,10 @@ pub async fn create_instance(
     network_name: &str,
     instance_label: &str,
     user_env_vars: ContainerEnvVars,
-) -> Result<Instance, Box<dyn std::error::Error>> {
+) -> Result<Instance, AnyhowError> {
     let config = config::read_or_create_config().await?;
     let mut container_ids = Vec::new();
-    let home_dir = dirs::home_dir().ok_or("Home directory not found")?;
+    let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
 
     let env_vars = initialize_env_vars(instance_label, &user_env_vars).await?;
 
@@ -613,7 +610,7 @@ pub async fn instance_handler(
 }
 
 
-pub async fn purge_instances(instance: InstanceSelection) -> Result<(), Custom<String>> {
+pub async fn purge_instances(instance: InstanceSelection) -> Result<(), AnyhowError> {
     let config_dir = dirs::config_dir().unwrap().join("wpdev");
 
     match instance {
@@ -621,18 +618,14 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<(), Custom<S
             let p = &config_dir.join(PathBuf::from("instances"));
             let path = p.to_str().unwrap();
             fs::remove_dir_all(&path).await
-                .map_err(|err| Custom(
-                        Status::InternalServerError,
-                        format!("Error removing directory {}: {}", path, err)))?;
+                .map_err(|err| AnyhowError::msg(format!("Error removing directory: {}: {}", path, err)))?;
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
             let p = &config_dir.join(PathBuf::from("instances").join(&instance_uuid));
             let path = p.to_str().unwrap();
             fs::remove_dir_all(&path).await
-                .map_err(|err| Custom(
-                        Status::InternalServerError,
-                        format!("Error removing directory {}: {}", path, err)))?;
+                .map_err(|err| AnyhowError::msg(format!("Error removing directory: {}: {}", path, err)))?;
             Ok(())
         }
     }

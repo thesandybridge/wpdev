@@ -10,7 +10,6 @@ name = "wpdev_core"
 
 [dependencies]
 anyhow = "1.0.75"
-clap = "4.4.10"
 config = "0.13.4"
 dirs = "5.0.1"
 futures = "0.3.29"
@@ -22,10 +21,3 @@ shiplift = "0.7.0"
 tokio = "1.34.0"
 toml = "0.8.8"
 
-[dependencies.uuid]
-version = "1.6.1"
-features = [
-    "v4",                # Lets you generate random UUIDs
-    "fast-rng",          # Use a faster (but still sufficiently random) RNG
-    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
-]

@@ -51,7 +51,11 @@ pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<
 }
 
 #[post("/instances/create", data = "<env_vars>")]
-pub async fn create_instance(env_vars: Option<Json<wpdev_core::docker_service::ContainerEnvVars>>) -> Result<Json<Instance>, Custom<String>> {
+pub async fn create_instance(
+    env_vars: Option<Json<wpdev_core::docker_service::ContainerEnvVars>>
+) ->
+Result<Json<Instance>, Custom<String>>
+{
     let docker = Docker::new();
     let uuid = Uuid::new_v4().to_string();
 
@@ -211,7 +215,10 @@ pub async fn delete_all_instance() -> Result<(), Custom<String>> {
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }?;
 
-    Ok(purge_instances(wpdev_core::docker_service::InstanceSelection::All).await?)
+    match purge_instances(wpdev_core::docker_service::InstanceSelection::All).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
 }
 
 #[post("/instances/<instance_uuid>/inspect")]
