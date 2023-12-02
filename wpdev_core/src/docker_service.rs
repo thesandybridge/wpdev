@@ -298,11 +298,16 @@ pub async fn create_instance(
     labels.insert("nginx_port", nginx_port_str.as_str());
     labels.insert("adminer_port", adminer_port_str.as_str());
 
+    let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .env(env_vars.mysql)
         .labels(&labels)
         .name(&format!("{}-mysql", &instance_label))
+        .volumes(vec![
+                 &format!("{}:/var/lib/mysql", mysql_config_dir.to_str().unwrap()),
+                 "/var/run/mysqld:/var/run/mysqld"
+        ])
         .build();
 
     let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
@@ -348,34 +353,6 @@ pub async fn create_instance(
         .expose(8080, "tcp", adminer_port)
         .build();
 
-    let wordpress_cli = ContainerOptions::builder(crate::WORDPRESS_CLI_IMAGE)
-        .network_mode(crate::NETWORK_NAME)
-        .labels(&labels)
-        .name(&format!("{}-wp-cli", instance_label))
-        .user("33")
-        .cmd(vec![
-             "--info",
-            ]
-        )
-        .volumes_from(vec![
-            format!("{}-wordpress", instance_label).as_str(),
-        ])
-        .entrypoint("wp")
-        .links(vec![
-            format!("{}-mysql:mysql", instance_label).as_str(),
-        ])
-        .cmd(vec![
-            "core",
-            "install",
-            format!("--path={}", wordpress_path.to_str().unwrap()).as_str(),
-            format!("--url=http://localhost:{}", nginx_port).as_str(),
-            "--title=WordPress",
-            "--admin_user=admin",
-            "--admin_password=password",
-            "--admin_email=admin@email.com"
-        ])
-        .build();
-
     let mut instance = Instance {
         container_ids: Vec::new(),
         uuid: instance_label.to_string(),
@@ -390,7 +367,6 @@ pub async fn create_instance(
         (wordpress_options, "Wordpress"),
         (nginx_options, "Nginx"),
         (adminer_options, "Adminer"),
-        (wordpress_cli, "Wordpress CLI"),
     ];
 
     for (options, container_type) in containers_to_create {
