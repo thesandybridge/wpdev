@@ -348,6 +348,34 @@ pub async fn create_instance(
         .expose(8080, "tcp", adminer_port)
         .build();
 
+    let wordpress_cli = ContainerOptions::builder(crate::WORDPRESS_CLI_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
+        .labels(&labels)
+        .name(&format!("{}-wp-cli", instance_label))
+        .user("33")
+        .cmd(vec![
+             "--info",
+            ]
+        )
+        .volumes_from(vec![
+            format!("{}-wordpress", instance_label).as_str(),
+        ])
+        .entrypoint("wp")
+        .links(vec![
+            format!("{}-mysql:mysql", instance_label).as_str(),
+        ])
+        .cmd(vec![
+            "core",
+            "install",
+            format!("--path={}", wordpress_path.to_str().unwrap()).as_str(),
+            format!("--url=http://localhost:{}", nginx_port).as_str(),
+            "--title=WordPress",
+            "--admin_user=admin",
+            "--admin_password=password",
+            "--admin_email=admin@email.com"
+        ])
+        .build();
+
     let mut instance = Instance {
         container_ids: Vec::new(),
         uuid: instance_label.to_string(),
@@ -362,6 +390,7 @@ pub async fn create_instance(
         (wordpress_options, "Wordpress"),
         (nginx_options, "Nginx"),
         (adminer_options, "Adminer"),
+        (wordpress_cli, "Wordpress CLI"),
     ];
 
     for (options, container_type) in containers_to_create {
