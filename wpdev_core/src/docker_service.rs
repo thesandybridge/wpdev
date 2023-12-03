@@ -300,6 +300,11 @@ define('WP_DEBUG', false);
     Ok(())
 }
 
+async fn create_path(path: PathBuf) -> Result<PathBuf, AnyhowError> {
+    fs::create_dir_all(&path).await?;
+    Ok(path)
+}
+
 type ContainerInfo = (ContainerOptions, &'static str);
 
 /// Create docker docker containers that are grouped by a unique
@@ -337,8 +342,7 @@ pub async fn create_instance(
     labels.insert("adminer_port", adminer_port_str.as_str());
 
     let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
-    fs::create_dir_all(&mysql_config_dir).await?;
-    let mysql_socket_path = mysql_config_dir;
+    let mysql_socket_path = create_path(mysql_config_dir).await?;
 
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
@@ -352,9 +356,7 @@ pub async fn create_instance(
         .build();
 
     let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
-    fs::create_dir_all(&instance_path).await?;
-    let wordpress_path = instance_path;
-
+    let wordpress_path = create_path(instance_path).await?;
 
     let nginx_config_path = generate_nginx_config(
         &config,
@@ -364,7 +366,6 @@ pub async fn create_instance(
         &format!("{}-wordpress", &instance_label),
         &home_dir,
     ).await?;
-
 
     let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
         .network_mode(crate::NETWORK_NAME)
@@ -376,7 +377,6 @@ pub async fn create_instance(
                  &format!("{}:/var/www/html/", wordpress_path.to_str().unwrap()),
         ])
         .build();
-
 
     let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
         .network_mode(crate::NETWORK_NAME)
