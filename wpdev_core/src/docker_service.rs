@@ -108,12 +108,11 @@ pub async fn create_network_if_not_exists(
     let networks = docker.networks().list(&Default::default()).await?;
     if networks.iter().any(|network| network.name == network_name) {
         // Network already exists
-        info!("Network already exists, skipping...");
+        info!("Network '{}' already exists, skipping...", network_name);
         Ok(())
     } else {
         // Create network
         let network_options = NetworkCreateOptions::builder(network_name).build();
-        docker.networks().create(&network_options).await?;
 
         match docker.networks().create(&network_options).await {
             Ok(container) => {
@@ -121,12 +120,13 @@ pub async fn create_network_if_not_exists(
                 Ok(())
             }
             Err(err) => {
-                error!("Error creating network: {:?}", err);
+                error!("Error creating network '{}': {:?}", network_name, err);
                 Err(err)
             }
         }
     }
 }
+
 
 struct EnvVars {
     adminer: Vec<String>,
@@ -213,7 +213,7 @@ async fn find_free_port() -> Result<u32, AnyhowError> {
 }
 
 async fn generate_nginx_config(
-    config: AppConfig,
+    config: &AppConfig,
     instance_label: &str,
     nginx_port: u32,
     adminer_name: &str,
@@ -222,31 +222,31 @@ async fn generate_nginx_config(
 ) -> Result<PathBuf, AnyhowError> {
     let nginx_config = format!(
         r#"
-        server {{
-            listen {nginx_port};
-            server_name localhost;
+server {{
+    listen {nginx_port};
+    server_name localhost;
 
-            location / {{
-                proxy_pass http://{wordpress_name}:80/;
-                proxy_set_header Host $host:$server_port;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-            }}
-        }}
+    location / {{
+        proxy_pass http://{wordpress_name}:80/;
+        proxy_set_header Host $host:$server_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
 
-        server {{
-            listen 8080;
-            server_name localhost;
+server {{
+    listen 8080;
+    server_name localhost;
 
-            location / {{
-                proxy_pass http://{adminer_name}:8080/;
-                proxy_set_header Host $host:$server_port;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-            }}
-        }}
+    location / {{
+        proxy_pass http://{adminer_name}:8080/;
+        proxy_set_header Host $host:$server_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
         "#,
         nginx_port = nginx_port,
         wordpress_name = wordpress_name,
@@ -260,6 +260,44 @@ async fn generate_nginx_config(
     tokio::fs::write(&nginx_config_path, nginx_config).await?;
 
     Ok(nginx_config_path)
+}
+
+async fn generate_wpcli_config(
+    config: &AppConfig,
+    instance_label: &str,
+    home_dir: &PathBuf
+) -> Result<(), AnyhowError> {
+    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
+    let wpcli_yml = format!(
+        r#"path: app
+require:
+  - wp-cli.local.php
+        "#,
+    );
+
+    let wpcli_php = format!(
+        r#"<?php
+
+define('DB_HOST', 'localhost:{instance_dir}mysql/mysqld.sock');
+define('DB_NAME', 'wordpress');
+define('DB_USER', 'wordpress');
+define('DB_PASSWORD', 'password');
+
+// disables errors when using wp-cli
+error_reporting(E_ERROR);
+define('WP_DEBUG', false);
+        "#,
+        instance_dir = instance_dir.to_str().unwrap(),
+    );
+
+    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
+    tokio::fs::create_dir_all(&instance_dir).await?;
+    let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
+    let wpcli_php_path  = instance_dir.join("wp-cli.local.php");
+    tokio::fs::write(&wpcli_yml_path, wpcli_yml).await?;
+    tokio::fs::write(&wpcli_php_path, wpcli_php).await?;
+
+    Ok(())
 }
 
 type ContainerInfo = (ContainerOptions, &'static str);
@@ -300,14 +338,16 @@ pub async fn create_instance(
 
     let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
     fs::create_dir_all(&mysql_config_dir).await?;
-    let mysql_config_path = mysql_config_dir;
+    let mysql_socket_path = mysql_config_dir;
+
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .env(env_vars.mysql)
         .labels(&labels)
+        .user("1000:1000")
         .name(&format!("{}-mysql", &instance_label))
         .volumes(vec![
-                 &format!("{}:/var/lib/mysql", mysql_config_path.to_str().unwrap()),
+                 &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().unwrap())
         ])
         .build();
 
@@ -317,7 +357,7 @@ pub async fn create_instance(
 
 
     let nginx_config_path = generate_nginx_config(
-        config,
+        &config,
         instance_label,
         nginx_port,
         &format!("{}-adminer", &instance_label),
@@ -362,6 +402,12 @@ pub async fn create_instance(
         nginx_port,
         adminer_port,
     };
+
+    generate_wpcli_config(
+        &config,
+        instance_label,
+        &home_dir,
+    ).await?;
 
     let containers_to_create: Vec<ContainerInfo> = vec![
         (mysql_options, "MySQL"),
