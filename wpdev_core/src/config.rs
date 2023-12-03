@@ -26,6 +26,7 @@ impl Default for AppConfig {
                 "nginx:latest".into(),
                 "mysql:latest".into(),
                 "adminer:latest".into(),
+                "wordpress:cli".into(),
             ],
             enable_logging: true,
             enable_frontend: false
