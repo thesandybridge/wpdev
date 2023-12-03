@@ -299,14 +299,15 @@ pub async fn create_instance(
     labels.insert("adminer_port", adminer_port_str.as_str());
 
     let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
+    fs::create_dir_all(&mysql_config_dir).await?;
+    let mysql_config_path = mysql_config_dir;
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
         .env(env_vars.mysql)
         .labels(&labels)
         .name(&format!("{}-mysql", &instance_label))
         .volumes(vec![
-                 &format!("{}:/var/lib/mysql", mysql_config_dir.to_str().unwrap()),
-                 "/var/run/mysqld:/var/run/mysqld"
+                 &format!("{}:/var/lib/mysql", mysql_config_path.to_str().unwrap()),
         ])
         .build();
 
