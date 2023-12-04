@@ -220,28 +220,41 @@ pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<Vec<Instance>>
 }
 
 #[get("/instances/ws")]
-pub async fn inspect_instance_ws(ws: ws::WebSocket) -> ws::Stream!['static] {
+pub fn inspect_instance_ws(ws: ws::WebSocket) -> ws::Stream!['static] {
     ws::Stream! { ws =>
         let docker = Docker::new();
-        match wpdev_core::docker_service::instance_handler(
-            &docker,
-            wpdev_core::NETWORK_NAME,
-            wpdev_core::docker_service::InstanceSelection::All,
-            wpdev_core::docker_service::ContainerOperation::Inspect,
-        ).await {
-            Ok(instances) => {
-                let response = serde_json::to_string(&instances).unwrap();
-                yield ws::Message::Text(response);
-            },
-            Err(e) => {
-                let error = serde_json::to_string(&e.to_string()).unwrap();
-                yield ws::Message::Text(error);
-            }
-        }
 
-        // If you still want to keep the loop for further messages
         for await message in ws {
-            // Handle messages or errors...
+            match message {
+                Ok(ws::Message::Text(text)) => {
+                    if text == "request_inspect" {
+                        // Process the inspection request
+                        match wpdev_core::docker_service::instance_handler(
+                            &docker,
+                            wpdev_core::NETWORK_NAME,
+                            wpdev_core::docker_service::InstanceSelection::All,
+                            wpdev_core::docker_service::ContainerOperation::Inspect,
+                        ).await {
+                            Ok(instances) => {
+                                let response = serde_json::to_string(&instances).unwrap();
+                                yield ws::Message::Text(response);
+                            },
+                            Err(e) => {
+                                error!("Error during instance inspection: {}", e);
+                                let error = serde_json::to_string(&e.to_string()).unwrap();
+                                yield ws::Message::Text(error);
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    error!("WebSocket error: {}", e);
+                    break;
+                },
+                _ => {
+                    break;
+                }
+            }
         }
     }
 }
