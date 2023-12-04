@@ -2,7 +2,8 @@ use rocket::get;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status::Custom;
-
+use serde::Deserialize;
+use serde_json;
 use shiplift::Docker;
 
 use uuid::Uuid;
@@ -218,6 +219,34 @@ pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<Vec<Instance>>
 
 }
 
+#[get("/instances/ws")]
+pub async fn inspect_instance_ws(ws: ws::WebSocket) -> ws::Stream!['static] {
+    ws::Stream! { ws =>
+        let docker = Docker::new();
+        match wpdev_core::docker_service::instance_handler(
+            &docker,
+            wpdev_core::NETWORK_NAME,
+            wpdev_core::docker_service::InstanceSelection::All,
+            wpdev_core::docker_service::ContainerOperation::Inspect,
+        ).await {
+            Ok(instances) => {
+                let response = serde_json::to_string(&instances).unwrap();
+                yield ws::Message::Text(response);
+            },
+            Err(e) => {
+                let error = serde_json::to_string(&e.to_string()).unwrap();
+                yield ws::Message::Text(error);
+            }
+        }
+
+        // If you still want to keep the loop for further messages
+        for await message in ws {
+            // Handle messages or errors...
+        }
+    }
+}
+
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         list_instances,
@@ -231,6 +260,7 @@ pub fn routes() -> Vec<rocket::Route> {
         restart_all_instances,
         start_all_instances,
         inspect_instance,
+        inspect_instance_ws,
     ]
 }
 
