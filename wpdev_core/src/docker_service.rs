@@ -27,6 +27,33 @@ pub struct Instance {
     pub container_statuses: HashMap<String, ContainerStatus>,
     pub nginx_port: u32,
     pub adminer_port: u32,
+    pub wordpress_data: Option<InstanceData>,
+}
+
+impl Default for Instance {
+    fn default() -> Self {
+        Instance {
+            container_ids: Vec::new(),
+            uuid: String::new(),
+            status: InstanceStatus::default(),
+            container_statuses: HashMap::new(),
+            nginx_port: 0,
+            adminer_port: 0,
+            wordpress_data: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InstanceData {
+    pub admin_user: String,
+    pub admin_password: String,
+    pub admin_email: String,
+    pub site_title: String,
+    pub site_url: String,
+    pub adminer_url: String,
+    pub adminer_user: String,
+    pub adminer_password: String,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +101,12 @@ pub enum InstanceStatus {
     Dead,
     Unknown,
     PartiallyRunning,
+}
+
+impl Default for InstanceStatus {
+    fn default() -> Self {
+        InstanceStatus::Unknown
+    }
 }
 
 pub enum InstanceSelection {
@@ -255,9 +288,9 @@ server {{
     );
 
     let nginx_config_dir = home_dir.join(format!("{}/{}/nginx", &config.custom_root, instance_label));
-    tokio::fs::create_dir_all(&nginx_config_dir).await?;
+    create_path(&nginx_config_dir).await?;
     let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
-    tokio::fs::write(&nginx_config_path, nginx_config).await?;
+    fs::write(&nginx_config_path, nginx_config).await?;
 
     Ok(nginx_config_path)
 }
@@ -291,18 +324,60 @@ define('WP_DEBUG', false);
     );
 
     let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
-    tokio::fs::create_dir_all(&instance_dir).await?;
+    create_path(&instance_dir).await?;
     let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
     let wpcli_php_path  = instance_dir.join("wp-cli.local.php");
-    tokio::fs::write(&wpcli_yml_path, wpcli_yml).await?;
-    tokio::fs::write(&wpcli_php_path, wpcli_php).await?;
+    fs::write(&wpcli_yml_path, wpcli_yml).await?;
+    fs::write(&wpcli_php_path, wpcli_php).await?;
 
     Ok(())
 }
 
-async fn create_path(path: PathBuf) -> Result<PathBuf, AnyhowError> {
+async fn create_path(path: &PathBuf) -> Result<&PathBuf, AnyhowError> {
     fs::create_dir_all(&path).await?;
     Ok(path)
+}
+
+async fn extract_instance_data(
+    env_vars: &EnvVars,
+    nginx_port: &u32,
+    adminer_port: &u32,
+    config: &AppConfig,
+    home_dir: &PathBuf,
+    instance_label: &str,
+) -> Result<InstanceData> {
+    let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
+
+    fn extract_value(vars: &Vec<String>, key: &str) -> String {
+        vars.iter()
+            .find_map(|s| {
+                let parts: Vec<&str> = s.splitn(2, '=').collect();
+                if parts.len() == 2 && parts[0] == key {
+                    Some(parts[1].to_string())
+                } else {
+                    None
+                }
+            })
+        .unwrap_or_else(|| "defaultValue".to_string())
+    }
+
+    let instance_data = InstanceData {
+        admin_user: extract_value(&env_vars.wordpress, "WORDPRESS_DB_USER"),
+        admin_password: extract_value(&env_vars.wordpress, "WORDPRESS_DB_PASSWORD"),
+        admin_email: "admin@example.com".to_string(),
+        site_title: "My Wordpress Site".to_string(),
+        site_url: format!("{}:{}", config.site_url, nginx_port),
+        adminer_url: format!("{}:{}", config.adminer_url, adminer_port),
+        adminer_user: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_USERNAME"),
+        adminer_password: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_PASSWORD"),
+    };
+
+    fs::write(&instance_dir, toml::to_string(&instance_data).unwrap()).await?;
+    info!("Instance data written to {:?}", instance_dir);
+
+    Ok(instance_data)
+
+
 }
 
 type ContainerInfo = (ContainerOptions, &'static str);
@@ -342,11 +417,11 @@ pub async fn create_instance(
     labels.insert("adminer_port", adminer_port_str.as_str());
 
     let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
-    let mysql_socket_path = create_path(mysql_config_dir).await?;
+    let mysql_socket_path = create_path(&mysql_config_dir).await?;
 
     let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .env(env_vars.mysql)
+        .env(&env_vars.mysql)
         .labels(&labels)
         .user("1000:1000")
         .name(&format!("{}-mysql", &instance_label))
@@ -356,7 +431,7 @@ pub async fn create_instance(
         .build();
 
     let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
-    let wordpress_path = create_path(instance_path).await?;
+    let wordpress_path = create_path(&instance_path).await?;
 
     let nginx_config_path = generate_nginx_config(
         &config,
@@ -369,7 +444,7 @@ pub async fn create_instance(
 
     let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .env(env_vars.wordpress)
+        .env(&env_vars.wordpress)
         .labels(&labels)
         .user("1000:1000")
         .name(&format!("{}-wordpress", &instance_label))
@@ -388,11 +463,20 @@ pub async fn create_instance(
 
     let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
         .network_mode(crate::NETWORK_NAME)
-        .env(env_vars.adminer)
+        .env(&env_vars.adminer)
         .labels(&labels)
         .name(&format!("{}-adminer", instance_label))
         .expose(8080, "tcp", adminer_port)
         .build();
+
+    let wordpress_data = extract_instance_data(
+        &env_vars,
+        &nginx_port,
+        &adminer_port,
+        &config,
+        &home_dir,
+        &instance_label,
+    ).await?;
 
     let mut instance = Instance {
         container_ids: Vec::new(),
@@ -401,6 +485,7 @@ pub async fn create_instance(
         container_statuses: HashMap::new(),
         nginx_port,
         adminer_port,
+        wordpress_data: Some(wordpress_data),
     };
 
     generate_wpcli_config(
@@ -431,7 +516,7 @@ async fn list_instances(
     docker: &Docker,
     network_name: &str,
     containers: Vec<Container>
-) -> Result<HashMap<String, Instance>, shiplift::Error> {
+) -> Result<HashMap<String, Instance>, AnyhowError> {
     let mut instances: HashMap<String, Instance> = HashMap::new();
 
     for container in containers {
@@ -441,9 +526,10 @@ async fn list_instances(
                     if let Some(labels) = &details.config.labels {
                         if let Some(instance_label) = labels.get("instance") {
                             let instance = instances.entry(instance_label.to_string())
-                                .or_insert_with(|| create_new_instance(instance_label, labels));
+                                .or_insert(create_new_instance(instance_label, labels).await?);
 
-                            instance.container_ids.push(container.id);
+                            instance.container_ids.push(container.id.clone());
+
                         }
                     }
                 }
@@ -459,18 +545,30 @@ async fn list_instances(
 }
 
 /// Creates a new instance with initial settings based on provided labels.
-fn create_new_instance(instance_label: &str, labels: &HashMap<String, String>) -> Instance {
+async fn create_new_instance(
+    instance_label: &str,
+    labels: &HashMap<String, String>
+) -> Result<Instance, AnyhowError> {
+    let config = config::read_or_create_config().await?;
+    let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
+    let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
+    let contents = fs::read_to_string(&instance_dir).await?;
+    let instance_data: InstanceData = toml::from_str(&contents)?;
+
     let nginx_port = parse_port(labels.get("nginx_port"));
     let adminer_port = parse_port(labels.get("adminer_port"));
 
-    Instance {
+    let instance = Instance {
         container_ids: Vec::new(),
         uuid: instance_label.to_string(),
         status: InstanceStatus::Unknown,
         container_statuses: HashMap::new(),
         nginx_port,
         adminer_port,
-    }
+        wordpress_data: instance_data.into(),
+    };
+
+    Ok(instance)
 }
 
 /// Parses a port from a label, providing a default value if necessary.
@@ -489,14 +587,14 @@ fn parse_port(port_label: Option<&String>) -> u32 {
 pub async fn list_all_instances(
     docker: &Docker,
     network_name: &str
-) -> Result<HashMap<String, Instance>, shiplift::Error> {
+) -> Result<HashMap<String, Instance>, AnyhowError> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::builder()
               .all()
               .build())
         .await?;
-    list_instances(docker, network_name, containers).await
+    Ok(list_instances(docker, network_name, containers).await?)
 }
 
 /// List all instances that are currently running.
@@ -508,12 +606,12 @@ pub async fn list_all_instances(
 pub async fn list_running_instances(
     docker: &Docker,
     network_name: &str
-) -> Result<HashMap<String, Instance>, shiplift::Error> {
+) -> Result<HashMap<String, Instance>, AnyhowError> {
     let containers = docker
         .containers()
         .list(&ContainerListOptions::default())
         .await?;
-   list_instances(docker, network_name, containers).await
+   Ok(list_instances(docker, network_name, containers).await?)
 }
 
 #[derive(Debug)]

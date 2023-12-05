@@ -1,0 +1,112 @@
+:root {
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+button {
+    cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: dark;
+  }
+}
+
+.instances {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.instance {
+    display: flex;
+    flex-direction: column;
+    border-radius: 10px;
+    border: 1px solid #000000;
+    padding: 1rem;
+    background-color: #151515;
+    color: #fff;
+}
+
+.instance header {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.instance_containers {
+    display: flex;
+    gap: 10px;
+}
+
+.status_container {
+    width: 10px;
+    height: 10px;
+    border-radius: 100%;
+}
+
+.running {
+    background-color: #58fc3f;
+}
+
+.stopped {
+    background-color: #cccccc;
+}
+
+.paused {
+    background-color: #ffff00;
+}
+
+.dead {
+    background-color: #fc3f42;
+}
+
+.unknown {
+    background-color: #cccccc;
+}
+
+.partiallyrunning {
+    background-color: #fc9a3f;
+}
+
+
+@keyframes sheen {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.isLoading {
+    background: linear-gradient(45deg, rgba(0,0,0,0) 0%, rgba(15,15,15,1) 50%, rgba(0,0,0,0) 100%);
+    background-size: 200% 100%;
+    animation: sheen 2s infinite;
+}

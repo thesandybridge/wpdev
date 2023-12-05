@@ -15,6 +15,8 @@ pub struct AppConfig {
     pub docker_images: Vec<String>,
     pub enable_logging: bool,
     pub enable_frontend: bool,
+    pub site_url: String,
+    pub adminer_url: String,
 }
 
 impl Default for AppConfig {
@@ -29,7 +31,9 @@ impl Default for AppConfig {
                 "wordpress:cli".into(),
             ],
             enable_logging: true,
-            enable_frontend: false
+            enable_frontend: false,
+            site_url: String::from("http://localhost"),
+            adminer_url: String::from("http://localhost"),
         }
     }
 }

@@ -2,15 +2,12 @@ use rocket::get;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status::Custom;
-use serde::Deserialize;
 use serde_json;
 use shiplift::Docker;
 
 use uuid::Uuid;
 
 use log::{info, error};
-
-use std::collections::HashMap;
 
 use wpdev_core::docker_service::{
     self,
@@ -20,7 +17,7 @@ use wpdev_core::docker_service::{
 };
 
 #[get("/instances")]
-pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<String>> {
+pub async fn list_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
     let docker = Docker::new();
     match docker_service::list_all_instances(&docker, wpdev_core::NETWORK_NAME).await {
         Ok(mut instances) => {
@@ -42,7 +39,7 @@ pub async fn list_instances() -> Result<Json<HashMap<String, Instance>>, Custom<
             }
 
             info!("Successfully listed instances");
-            Ok(Json(instances))
+            Ok(Json(instances.values().cloned().collect()))
         },
         Err(e) => {
             error!("Error listing instances: {:?}", e);
@@ -249,10 +246,8 @@ pub fn inspect_instance_ws(ws: ws::WebSocket) -> ws::Stream!['static] {
                 },
                 Err(e) => {
                     error!("WebSocket error: {}", e);
-                    break;
                 },
                 _ => {
-                    break;
                 }
             }
         }
