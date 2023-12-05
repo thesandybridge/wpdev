@@ -35,7 +35,7 @@ pub async fn list_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
                         }
                     };
                 }
-                instance.status = docker_service::determine_instance_status(&instance.container_statuses);
+                instance.status = docker_service::Instance::get_status(&instance.container_statuses);
             }
 
             info!("Successfully listed instances");

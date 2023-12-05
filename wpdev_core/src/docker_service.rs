@@ -102,20 +102,6 @@ pub enum InstanceSelection {
     One(String)
 }
 
-fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<String, String>>) -> Vec<String> {
-    let mut env_vars = defaults;
-
-    if let Some(overrides) = overrides {
-        for (key, value) in overrides.iter() {
-            env_vars.insert(key.clone(), value.clone());
-        }
-    }
-
-    env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
-}
-
-
-
 /// Creates a Docker Network if it doesn't already exist.
 ///
 /// # Arguments
@@ -153,6 +139,18 @@ struct EnvVars {
     adminer: Vec<String>,
     mysql: Vec<String>,
     wordpress: Vec<String>,
+}
+
+fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<String, String>>) -> Vec<String> {
+    let mut env_vars = defaults;
+
+    if let Some(overrides) = overrides {
+        for (key, value) in overrides.iter() {
+            env_vars.insert(key.clone(), value.clone());
+        }
+    }
+
+    env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
 }
 
 async fn initialize_env_vars(
@@ -198,31 +196,7 @@ async fn initialize_env_vars(
     })
 }
 
-async fn create_container(
-    docker: &Docker,
-    options: ContainerOptions,
-    container_type: &str,
-    container_ids: &mut Vec<String>,
-) -> Result<(String, ContainerStatus), AnyhowError> {
-    match docker.containers().create(&options).await {
-        Ok(container) => {
-            container_ids.push(container.id.clone());
-            log::info!("{} container successfully created: {:?}", container_type, container);
 
-            match fetch_container_status(docker, &container.id).await {
-                Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
-                Err(err) => {
-                    log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
-                    Err(err.into())
-                }
-            }
-        }
-        Err(err) => {
-            log::error!("Error creating {} container: {:?}", container_type, err);
-            Err(err.into())
-        }
-    }
-}
 
 async fn find_free_port() -> Result<u32, AnyhowError> {
     // Bind to port 0; the OS will assign a random available port
@@ -519,7 +493,7 @@ impl Instance {
         }
 
         // Determine overall instance status based on container statuses
-        instance.status = determine_instance_status(&instance.container_statuses);
+        instance.status = Self::get_status(&instance.container_statuses);
 
         Ok(instance)
 
@@ -580,18 +554,42 @@ impl Instance {
             .await?;
         Ok(Self::list(docker, network_name, containers).await?)
     }
+
+    pub fn get_status(container_statuses: &HashMap<String, ContainerStatus>) -> InstanceStatus {
+        let all_running = container_statuses.values().all(|status| *status == ContainerStatus::Running);
+        let any_running = container_statuses.values().any(|status| *status == ContainerStatus::Running);
+
+        match (all_running, any_running) {
+            (true, _) => InstanceStatus::Running,
+            (false, true) => InstanceStatus::PartiallyRunning,
+            (false, false) => InstanceStatus::Stopped,
+        }
+    }
 }
 
+async fn create_container(
+    docker: &Docker,
+    options: ContainerOptions,
+    container_type: &str,
+    container_ids: &mut Vec<String>,
+) -> Result<(String, ContainerStatus), AnyhowError> {
+    match docker.containers().create(&options).await {
+        Ok(container) => {
+            container_ids.push(container.id.clone());
+            log::info!("{} container successfully created: {:?}", container_type, container);
 
-
-#[derive(Debug)]
-struct CustomError(String);
-
-impl std::error::Error for CustomError {}
-
-impl std::fmt::Display for CustomError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+            match fetch_container_status(docker, &container.id).await {
+                Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
+                Err(err) => {
+                    log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
+                    Err(err.into())
+                }
+            }
+        }
+        Err(err) => {
+            log::error!("Error creating {} container: {:?}", container_type, err);
+            Err(err.into())
+        }
     }
 }
 
@@ -612,17 +610,6 @@ pub async fn fetch_container_status(
             Ok(None)
         },
         Err(e) => Err(e)
-    }
-}
-
-pub fn determine_instance_status(container_statuses: &HashMap<String, ContainerStatus>) -> InstanceStatus {
-    let all_running = container_statuses.values().all(|status| *status == ContainerStatus::Running);
-    let any_running = container_statuses.values().any(|status| *status == ContainerStatus::Running);
-
-    match (all_running, any_running) {
-        (true, _) => InstanceStatus::Running,
-        (false, true) => InstanceStatus::PartiallyRunning,
-        (false, false) => InstanceStatus::Stopped,
     }
 }
 
@@ -690,7 +677,7 @@ pub async fn handle_instance(
             }
         }
 
-        let instance_status = determine_instance_status(&container_statuses);
+        let instance_status = Instance::get_status(&container_statuses);
         instance.status = instance_status;
         instance.container_statuses = container_statuses;
 
