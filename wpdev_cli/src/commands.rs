@@ -49,7 +49,7 @@ pub async fn create_instance(env_vars_str: Option<&String>) -> Result<serde_json
         None => wpdev_core::docker_service::ContainerEnvVars::default(),
     };
 
-    match wpdev_core::docker_service::create_instance(
+    match wpdev_core::docker_service::Instance::new(
         &docker,
         wpdev_core::NETWORK_NAME,
         &uuid,

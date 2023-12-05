@@ -63,7 +63,7 @@ Result<Json<Instance>, Custom<String>>
     // Use the provided env_vars if available, otherwise use default
     let env_vars = env_vars.map_or(default_env_vars, |json| json.into_inner());
 
-    match wpdev_core::docker_service::create_instance(
+    match wpdev_core::docker_service::Instance::new(
         &docker,
         wpdev_core::NETWORK_NAME,
         &uuid,

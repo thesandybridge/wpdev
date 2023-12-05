@@ -30,19 +30,7 @@ pub struct Instance {
     pub wordpress_data: Option<InstanceData>,
 }
 
-impl Default for Instance {
-    fn default() -> Self {
-        Instance {
-            container_ids: Vec::new(),
-            uuid: String::new(),
-            status: InstanceStatus::default(),
-            container_statuses: HashMap::new(),
-            nginx_port: 0,
-            adminer_port: 0,
-            wordpress_data: None,
-        }
-    }
-}
+
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceData {
@@ -382,135 +370,6 @@ async fn extract_instance_data(
 
 type ContainerInfo = (ContainerOptions, &'static str);
 
-/// Create docker docker containers that are grouped by a unique
-/// identifier.
-///
-/// # Arguments
-///
-/// * `docker` - Docker interface
-/// * `network_name` - Docker network name
-/// * `instance_label` - UUID
-/// * `user_env_vars` - User defined environment variables
-pub async fn create_instance(
-    docker: &Docker,
-    network_name: &str,
-    instance_label: &str,
-    user_env_vars: ContainerEnvVars,
-) -> Result<Instance, AnyhowError> {
-    let config = config::read_or_create_config().await?;
-    let mut container_ids = Vec::new();
-    let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
-
-    let env_vars = initialize_env_vars(instance_label, &user_env_vars).await?;
-
-    create_network_if_not_exists(&docker, &network_name).await?;
-
-    let nginx_port = find_free_port().await?;
-    let adminer_port = find_free_port().await?;
-
-    let mut labels = HashMap::new();
-    let instance_label_str = instance_label.to_string();
-    let nginx_port_str = nginx_port.to_string();
-    let adminer_port_str = adminer_port.to_string();
-    labels.insert("instance", instance_label_str.as_str());
-    labels.insert("nginx_port", nginx_port_str.as_str());
-    labels.insert("adminer_port", adminer_port_str.as_str());
-
-    let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
-    let mysql_socket_path = create_path(&mysql_config_dir).await?;
-
-    let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
-        .network_mode(crate::NETWORK_NAME)
-        .env(&env_vars.mysql)
-        .labels(&labels)
-        .user("1000:1000")
-        .name(&format!("{}-mysql", &instance_label))
-        .volumes(vec![
-                 &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().unwrap())
-        ])
-        .build();
-
-    let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
-    let wordpress_path = create_path(&instance_path).await?;
-
-    let nginx_config_path = generate_nginx_config(
-        &config,
-        instance_label,
-        nginx_port,
-        &format!("{}-adminer", &instance_label),
-        &format!("{}-wordpress", &instance_label),
-        &home_dir,
-    ).await?;
-
-    let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
-        .network_mode(crate::NETWORK_NAME)
-        .env(&env_vars.wordpress)
-        .labels(&labels)
-        .user("1000:1000")
-        .name(&format!("{}-wordpress", &instance_label))
-        .volumes(vec![
-                 &format!("{}:/var/www/html/", wordpress_path.to_str().unwrap()),
-        ])
-        .build();
-
-    let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
-        .network_mode(crate::NETWORK_NAME)
-        .labels(&labels)
-        .name(&format!("{}-nginx", instance_label))
-        .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
-        .expose(nginx_port, "tcp", nginx_port)
-        .build();
-
-    let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
-        .network_mode(crate::NETWORK_NAME)
-        .env(&env_vars.adminer)
-        .labels(&labels)
-        .name(&format!("{}-adminer", instance_label))
-        .expose(8080, "tcp", adminer_port)
-        .build();
-
-    let wordpress_data = extract_instance_data(
-        &env_vars,
-        &nginx_port,
-        &adminer_port,
-        &config,
-        &home_dir,
-        &instance_label,
-    ).await?;
-
-    let mut instance = Instance {
-        container_ids: Vec::new(),
-        uuid: instance_label.to_string(),
-        status: InstanceStatus::Stopped,
-        container_statuses: HashMap::new(),
-        nginx_port,
-        adminer_port,
-        wordpress_data: Some(wordpress_data),
-    };
-
-    generate_wpcli_config(
-        &config,
-        instance_label,
-        &home_dir,
-    ).await?;
-
-    let containers_to_create: Vec<ContainerInfo> = vec![
-        (mysql_options, "MySQL"),
-        (wordpress_options, "Wordpress"),
-        (nginx_options, "Nginx"),
-        (adminer_options, "Adminer"),
-    ];
-
-    for (options, container_type) in containers_to_create {
-        let (container_id, container_status) = create_container(docker, options, container_type, &mut container_ids).await?;
-        instance.container_statuses.insert(container_id, container_status);
-    }
-
-    // Determine overall instance status based on container statuses
-    instance.status = determine_instance_status(&instance.container_statuses);
-
-    Ok(instance)
-}
 
 async fn list_instances(
     docker: &Docker,
@@ -571,6 +430,142 @@ async fn create_new_instance(
     Ok(instance)
 }
 
+impl Instance {
+    pub fn default() -> Self {
+        Instance {
+            container_ids: Vec::new(),
+            uuid: String::new(),
+            status: InstanceStatus::default(),
+            container_statuses: HashMap::new(),
+            nginx_port: 0,
+            adminer_port: 0,
+            wordpress_data: None,
+        }
+    }
+
+    pub async fn new(
+        docker: &Docker,
+        network_name: &str,
+        instance_label: &str,
+        user_env_vars: ContainerEnvVars,
+        ) -> Result<Self> {
+
+        let config = config::read_or_create_config().await?;
+        let mut container_ids = Vec::new();
+        let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
+
+        let env_vars = initialize_env_vars(instance_label, &user_env_vars).await?;
+
+        create_network_if_not_exists(&docker, &network_name).await?;
+
+        let nginx_port = find_free_port().await?;
+        let adminer_port = find_free_port().await?;
+
+        let mut labels = HashMap::new();
+        let instance_label_str = instance_label.to_string();
+        let nginx_port_str = nginx_port.to_string();
+        let adminer_port_str = adminer_port.to_string();
+        labels.insert("instance", instance_label_str.as_str());
+        labels.insert("nginx_port", nginx_port_str.as_str());
+        labels.insert("adminer_port", adminer_port_str.as_str());
+
+        let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
+        let mysql_socket_path = create_path(&mysql_config_dir).await?;
+
+        let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
+            .network_mode(crate::NETWORK_NAME)
+            .env(&env_vars.mysql)
+            .labels(&labels)
+            .user("1000:1000")
+            .name(&format!("{}-mysql", &instance_label))
+            .volumes(vec![
+                     &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().unwrap())
+            ])
+            .build();
+
+        let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
+        let wordpress_path = create_path(&instance_path).await?;
+
+        let nginx_config_path = generate_nginx_config(
+            &config,
+            instance_label,
+            nginx_port,
+            &format!("{}-adminer", &instance_label),
+            &format!("{}-wordpress", &instance_label),
+            &home_dir,
+            ).await?;
+
+        let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
+            .network_mode(crate::NETWORK_NAME)
+            .env(&env_vars.wordpress)
+            .labels(&labels)
+            .user("1000:1000")
+            .name(&format!("{}-wordpress", &instance_label))
+            .volumes(vec![
+                     &format!("{}:/var/www/html/", wordpress_path.to_str().unwrap()),
+            ])
+            .build();
+
+        let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
+            .network_mode(crate::NETWORK_NAME)
+            .labels(&labels)
+            .name(&format!("{}-nginx", instance_label))
+            .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
+            .expose(nginx_port, "tcp", nginx_port)
+            .build();
+
+        let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
+            .network_mode(crate::NETWORK_NAME)
+            .env(&env_vars.adminer)
+            .labels(&labels)
+            .name(&format!("{}-adminer", instance_label))
+            .expose(8080, "tcp", adminer_port)
+            .build();
+
+        let wordpress_data = extract_instance_data(
+            &env_vars,
+            &nginx_port,
+            &adminer_port,
+            &config,
+            &home_dir,
+            &instance_label,
+            ).await?;
+
+        let mut instance = Instance {
+            container_ids: Vec::new(),
+            uuid: instance_label.to_string(),
+            status: InstanceStatus::Stopped,
+            container_statuses: HashMap::new(),
+            nginx_port,
+            adminer_port,
+            wordpress_data: Some(wordpress_data),
+        };
+
+        generate_wpcli_config(
+            &config,
+            instance_label,
+            &home_dir,
+            ).await?;
+
+        let containers_to_create: Vec<ContainerInfo> = vec![
+            (mysql_options, "MySQL"),
+            (wordpress_options, "Wordpress"),
+            (nginx_options, "Nginx"),
+            (adminer_options, "Adminer"),
+        ];
+
+        for (options, container_type) in containers_to_create {
+            let (container_id, container_status) = create_container(docker, options, container_type, &mut container_ids).await?;
+            instance.container_statuses.insert(container_id, container_status);
+        }
+
+        // Determine overall instance status based on container statuses
+        instance.status = determine_instance_status(&instance.container_statuses);
+
+        Ok(instance)
+
+    }
+}
 /// Parses a port from a label, providing a default value if necessary.
 fn parse_port(port_label: Option<&String>) -> u32 {
     port_label
