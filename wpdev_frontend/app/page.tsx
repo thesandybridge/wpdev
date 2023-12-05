@@ -10,13 +10,7 @@ export default function Home() {
     const [instances, setInstances] = useState<Instance[]>([])
     const api = 'http://127.0.0.1:8000/api/instances/'
     const wsUrl = 'ws://127.0.0.1:8000/api/instances/ws'
-    const ws = useRef(null);
-
-    const fetchData = () => {
-        if (ws.current) {
-            ws.current.send('request_inspect');
-        }
-    };
+    const ws = useRef<WebSocket | null>(null);
 
     const getStatusOrder = (status: InstanceStatus) => {
         const order = [
@@ -51,7 +45,7 @@ export default function Home() {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            fetchData();
+            requestInspect();
 
         } catch (error) {
             console.error(error);
@@ -60,15 +54,17 @@ export default function Home() {
 
     useEffect(() => {
         ws.current = new WebSocket(wsUrl);
+        console.log('Attempting to connect to WebSocket');
 
         ws.current.onopen = () => {
-            fetchData();
+            console.log('WebSocket connected');
+            requestInspect();
         };
 
         ws.current.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                console.log(data);
+                console.log('Received data:', data);
                 setInstances(data);
             } catch (error) {
                 console.error('Error parsing WebSocket message:', error);
@@ -81,6 +77,7 @@ export default function Home() {
 
         ws.current.onclose = (event) => {
             console.log(`WebSocket connection closed: ${event.code} - ${event.reason}`);
+            // Implement reconnection logic if needed
         };
 
         return () => {
@@ -89,6 +86,12 @@ export default function Home() {
             }
         };
     }, []);
+
+    const requestInspect = () => {
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+            ws.current.send('request_inspect');
+        }
+    };
 
   return (
     <div className={styles.grid}>
@@ -117,7 +120,7 @@ export default function Home() {
                         key={i}
                         data={instance}
                         api={api}
-                        fetchInstances={fetchData}
+                        fetchInstances={requestInspect}
                     />
                 ))}
             </div>

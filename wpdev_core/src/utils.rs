@@ -1,3 +1,4 @@
+use std::net::{TcpListener, SocketAddr};
 use spinners::{Spinner, Spinners};
 use std::future::Future;
 use std::{thread, time::Duration};
@@ -5,6 +6,10 @@ use std::io::{self, Write};
 use prettytable::{Table, Row, Cell, format};
 use prettytable::row;
 use serde_json::Value;
+use anyhow::{Result, Error as AnyhowError};
+
+use std::path::PathBuf;
+use tokio::fs;
 
 pub async fn with_spinner<F, T, E>(future: F, message: &str) -> Result<T, E>
 where
@@ -65,4 +70,25 @@ pub fn print_instances_table(json_data: &Value) {
 
     // Print the table
     table.printstd();
+}
+
+pub async fn create_path(path: &PathBuf) -> Result<&PathBuf, AnyhowError> {
+    fs::create_dir_all(&path).await?;
+    Ok(path)
+}
+
+/// Parses a port from a label, providing a default value if necessary.
+pub fn parse_port(port_label: Option<&String>) -> u32 {
+    port_label
+        .and_then(|port| port.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+pub async fn find_free_port() -> Result<u32, AnyhowError> {
+    // Bind to port 0; the OS will assign a random available port
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let socket_addr: SocketAddr = listener.local_addr()?;
+    let port = socket_addr.port();
+
+    Ok(u32::from(port))
 }
