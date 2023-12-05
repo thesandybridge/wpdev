@@ -15,7 +15,7 @@ pub async fn list_instances() -> Result<Json, AnyhowError> {
         Ok(mut instances) => {
             for (_, instance) in instances.iter_mut() {
                 for container_id in &instance.container_ids {
-                    match docker_service::fetch_container_status(&docker, container_id).await {
+                    match docker_service::InstanceContainer::get_status(&docker, container_id).await {
                         Ok(Some(status)) => {
                             instance.container_statuses.insert(container_id.clone(), status);
                         },

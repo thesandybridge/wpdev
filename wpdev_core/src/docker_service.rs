@@ -42,6 +42,12 @@ pub struct InstanceData {
     pub adminer_password: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InstanceContainer {
+    pub container_id: String,
+    pub container_status: ContainerStatus,
+}
+
 #[derive(Deserialize)]
 pub struct ContainerEnvVars {
     wordpress: Option<HashMap<String, String>>,
@@ -280,7 +286,7 @@ define('DB_PASSWORD', 'password');
 error_reporting(E_ERROR);
 define('WP_DEBUG', false);
         "#,
-        instance_dir = instance_dir.to_str().unwrap(),
+        instance_dir = instance_dir.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
     );
 
     let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
@@ -307,6 +313,55 @@ fn parse_port(port_label: Option<&String>) -> u32 {
 
 type ContainerInfo = (ContainerOptions, &'static str);
 
+impl InstanceContainer {
+    pub async fn new(
+        docker: &Docker,
+        options: ContainerOptions,
+        container_type: &str,
+        container_ids: &mut Vec<String>,
+        ) -> Result<(String, ContainerStatus), AnyhowError> {
+        match docker.containers().create(&options).await {
+            Ok(container) => {
+                container_ids.push(container.id.clone());
+                log::info!("{} container successfully created: {:?}", container_type, container);
+
+                match Self::get_status(docker, &container.id).await {
+                    Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
+                    Err(err) => {
+                        log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
+                        Err(err.into())
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("Error creating {} container: {:?}", container_type, err);
+                Err(err.into())
+            }
+        }
+    }
+
+    pub async fn get_status(
+        docker: &Docker,
+        container_id: &str,
+        ) -> Result<Option<ContainerStatus>, DockerError> {
+        match docker.containers().get(container_id).inspect().await {
+            Ok(container_info) => {
+                let status = match container_info.state.status.as_str() {
+                    "running" => ContainerStatus::Running,
+                    "exited" => ContainerStatus::Stopped,
+                    _ => ContainerStatus::Unknown,
+                };
+                Ok(Some(status))
+            },
+            Err(DockerError::Fault { code, .. }) if code.as_u16() == 404 => {
+                Ok(None)
+            },
+            Err(e) => Err(e)
+        }
+
+    }
+}
+
 impl Instance {
     pub async fn default(
         instance_label: &str,
@@ -320,7 +375,7 @@ impl Instance {
 
         let nginx_port = parse_port(labels.get("nginx_port"));
         let adminer_port = parse_port(labels.get("adminer_port"));
-        let instance = Instance {
+        let instance = Self {
             container_ids: Vec::new(),
             uuid: instance_label.to_string(),
             status: InstanceStatus::default(),
@@ -367,7 +422,7 @@ impl Instance {
             adminer_password: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_PASSWORD"),
         };
 
-        fs::write(&instance_dir, toml::to_string(&instance_data).unwrap()).await?;
+        fs::write(&instance_dir, toml::to_string(&instance_data)?).await?;
         info!("Instance data written to {:?}", instance_dir);
 
         Ok(instance_data)
@@ -410,7 +465,7 @@ impl Instance {
             .user("1000:1000")
             .name(&format!("{}-mysql", &instance_label))
             .volumes(vec![
-                     &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().unwrap())
+                     &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)
             ])
             .build();
 
@@ -433,7 +488,7 @@ impl Instance {
             .user("1000:1000")
             .name(&format!("{}-wordpress", &instance_label))
             .volumes(vec![
-                     &format!("{}:/var/www/html/", wordpress_path.to_str().unwrap()),
+                     &format!("{}:/var/www/html/", wordpress_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?),
             ])
             .build();
 
@@ -441,7 +496,7 @@ impl Instance {
             .network_mode(crate::NETWORK_NAME)
             .labels(&labels)
             .name(&format!("{}-nginx", instance_label))
-            .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().unwrap())])
+            .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)])
             .expose(nginx_port, "tcp", nginx_port)
             .build();
 
@@ -486,7 +541,7 @@ impl Instance {
         ];
 
         for (options, container_type) in containers_to_create {
-            let (container_id, container_status) = create_container(docker, options, container_type, &mut container_ids).await?;
+            let (container_id, container_status) = InstanceContainer::new(docker, options, container_type, &mut container_ids).await?;
             instance.container_statuses.insert(container_id, container_status);
         }
 
@@ -565,52 +620,6 @@ impl Instance {
     }
 }
 
-async fn create_container(
-    docker: &Docker,
-    options: ContainerOptions,
-    container_type: &str,
-    container_ids: &mut Vec<String>,
-) -> Result<(String, ContainerStatus), AnyhowError> {
-    match docker.containers().create(&options).await {
-        Ok(container) => {
-            container_ids.push(container.id.clone());
-            log::info!("{} container successfully created: {:?}", container_type, container);
-
-            match fetch_container_status(docker, &container.id).await {
-                Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
-                Err(err) => {
-                    log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
-                    Err(err.into())
-                }
-            }
-        }
-        Err(err) => {
-            log::error!("Error creating {} container: {:?}", container_type, err);
-            Err(err.into())
-        }
-    }
-}
-
-pub async fn fetch_container_status(
-    docker: &Docker,
-    container_id: &str,
-) -> Result<Option<ContainerStatus>, DockerError> {
-    match docker.containers().get(container_id).inspect().await {
-        Ok(container_info) => {
-            let status = match container_info.state.status.as_str() {
-                "running" => ContainerStatus::Running,
-                "exited" => ContainerStatus::Stopped,
-                _ => ContainerStatus::Unknown,
-            };
-            Ok(Some(status))
-        },
-        Err(DockerError::Fault { code, .. }) if code.as_u16() == 404 => {
-            Ok(None)
-        },
-        Err(e) => Err(e)
-    }
-}
-
 pub async fn handle_instance(
     docker: &Docker,
     network_name: &str,
@@ -622,7 +631,7 @@ pub async fn handle_instance(
     if let Some(mut instance) = instances.get(instance_uuid).cloned() {
         let mut container_statuses = HashMap::new();
         for container_id in &instance.container_ids {
-            let current_container_status = fetch_container_status(docker, container_id).await?;
+            let current_container_status = InstanceContainer::get_status(docker, container_id).await?;
             match operation {
                 ContainerOperation::Start => {
                     if current_container_status != Some(ContainerStatus::Running) {
@@ -666,7 +675,7 @@ pub async fn handle_instance(
             }
 
 
-            let updated_status = fetch_container_status(docker, container_id).await?;
+            let updated_status = InstanceContainer::get_status(docker, container_id).await?;
 
             if let Some(status) = updated_status {
                 container_statuses.insert(container_id.clone(), status);
@@ -731,19 +740,19 @@ pub async fn instance_handler(
 
 
 pub async fn purge_instances(instance: InstanceSelection) -> Result<(), AnyhowError> {
-    let config_dir = dirs::config_dir().unwrap().join("wpdev");
+    let config_dir = dirs::config_dir().ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
 
     match instance {
         InstanceSelection::All => {
             let p = &config_dir.join(PathBuf::from("instances"));
-            let path = p.to_str().unwrap();
+            let path = p.to_str().ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
             fs::remove_dir_all(&path).await
                 .map_err(|err| AnyhowError::msg(format!("Error removing directory: {}: {}", path, err)))?;
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
             let p = &config_dir.join(PathBuf::from("instances").join(&instance_uuid));
-            let path = p.to_str().unwrap();
+            let path = p.to_str().ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
             fs::remove_dir_all(&path).await
                 .map_err(|err| AnyhowError::msg(format!("Error removing directory: {}: {}", path, err)))?;
             Ok(())
