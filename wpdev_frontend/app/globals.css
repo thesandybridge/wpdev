@@ -69,14 +69,15 @@ button {
     width: 10px;
     height: 10px;
     border-radius: 100%;
+    border: 1px solid transparent;
 }
 
 .running {
-    background-color: #58fc3f;
+    background-color: #87e084;
 }
 
 .stopped {
-    background-color: #cccccc;
+    background-color: #ececec;
 }
 
 .paused {
@@ -84,15 +85,15 @@ button {
 }
 
 .dead {
-    background-color: #fc3f42;
+    background-color: #e08484;
 }
 
 .unknown {
-    background-color: #cccccc;
+    background-color: #c784e0;
 }
 
 .partiallyrunning {
-    background-color: #fc9a3f;
+    background-color: #e0bb84;
 }
 
 

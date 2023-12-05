@@ -1,44 +1,18 @@
-use serde::{Serialize, Deserialize};
 use shiplift::{Docker, PullOptions, ImageListOptions};
 use futures::stream::StreamExt;
+use std::collections::HashMap;
+use shiplift::NetworkCreateOptions;
+use log::{info, error};
+use std::path::PathBuf;
 
 use dirs;
 
 use anyhow::{Result, Error as AnyhowError};
 use tokio::fs::{self};
 
-use log::info;
+use crate::utils;
 
-#[derive(Serialize, Deserialize)]
-pub struct AppConfig {
-    pub custom_root: String,
-    pub docker_images: Vec<String>,
-    pub enable_logging: bool,
-    pub enable_frontend: bool,
-    pub site_url: String,
-    pub adminer_url: String,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        AppConfig {
-            custom_root: String::from(".config/wpdev/instances"),
-            docker_images: vec![
-                "wordpress:latest".into(),
-                "nginx:latest".into(),
-                "mysql:latest".into(),
-                "adminer:latest".into(),
-                "wordpress:cli".into(),
-            ],
-            enable_logging: true,
-            enable_frontend: false,
-            site_url: String::from("http://localhost"),
-            adminer_url: String::from("http://localhost"),
-        }
-    }
-}
-
-pub async fn read_or_create_config() -> Result<AppConfig> {
+pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     let config_dir = dirs::config_dir().unwrap().join("wpdev");
     fs::create_dir_all(&config_dir).await?;
 
@@ -46,11 +20,11 @@ pub async fn read_or_create_config() -> Result<AppConfig> {
 
     if config_path.exists() {
         let contents = fs::read_to_string(&config_path).await?;
-        let config: AppConfig = toml::from_str(&contents)?;
+        let config: crate::AppConfig = toml::from_str(&contents)?;
         info!("Loaded config from {:?}", config_path);
         Ok(config)
     } else {
-        let config = AppConfig::default();
+        let config = crate::AppConfig::default();
         let toml = toml::to_string(&config)?;
         fs::write(&config_path, toml).await?;
         info!("Created config file at {:?}", config_path);
@@ -148,6 +122,181 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
     for image_name in config.docker_images {
         pull_docker_image_if_not_exists(&image_name).await?;
     }
+
+    Ok(())
+}
+
+/// Creates a Docker Network if it doesn't already exist.
+///
+/// # Arguments
+///
+/// * `docker` - &Docker
+/// * `network_name` - name of the network
+pub async fn create_network_if_not_exists(
+    docker: &Docker,
+    network_name: &str
+) -> Result<(), shiplift::Error> {
+    let networks = docker.networks().list(&Default::default()).await?;
+    if networks.iter().any(|network| network.name == network_name) {
+        // Network already exists
+        info!("Network '{}' already exists, skipping...", network_name);
+        Ok(())
+    } else {
+        // Create network
+        let network_options = NetworkCreateOptions::builder(network_name).build();
+
+        match docker.networks().create(&network_options).await {
+            Ok(container) => {
+                info!("Wordpress network successfully created: {:?}", container);
+                Ok(())
+            }
+            Err(err) => {
+                error!("Error creating network '{}': {:?}", network_name, err);
+                Err(err)
+            }
+        }
+    }
+}
+
+fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<String, String>>) -> Vec<String> {
+    let mut env_vars = defaults;
+
+    if let Some(overrides) = overrides {
+        for (key, value) in overrides.iter() {
+            env_vars.insert(key.clone(), value.clone());
+        }
+    }
+
+    env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
+}
+
+pub async fn initialize_env_vars(
+    instance_label: &str,
+    user_env_vars: &crate::ContainerEnvVars,
+) -> Result<crate::EnvVars, AnyhowError> {
+
+    let default_adminer_vars = HashMap::from([
+        ("ADMINER_DESIGN".to_string(), "nette".to_string()),
+        ("ADMINER_PLUGINS".to_string(), "tables-filter tinymce".to_string()),
+        ("MYSQL_PORT".to_string(), "3306".to_string()),
+        ("ADMINER_DEFAULT_SERVER".to_string(), format!("{}-mysql", instance_label).to_string()),
+        ("ADMINER_DEFAULT_USERNAME".to_string(), "wordpress".to_string()),
+        ("ADMINER_DEFAULT_PASSWORD".to_string(), "password".to_string()),
+        ("ADMINER_DEFAULT_DATABASE".to_string(), "wordpress".to_string()),
+    ]);
+
+    let default_mysql_vars = HashMap::from([
+        ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
+        ("MYSQL_DATABASE".to_string(),"wordpress".to_string()),
+        ("MYSQL_USER".to_string(),"wordpress".to_string()),
+        ("MYSQL_PASSWORD".to_string(),"password".to_string()),
+    ]);
+
+    let default_wordpress_vars = HashMap::from([
+        ("WORDPRESS_DB_HOST".to_string(), format!("{}-mysql", instance_label).to_string()),
+        ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
+        ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
+        ("WORDPRESS_DB_NAME".to_string(), "wordpress".to_string()),
+        ("WORDPRESS_TABLE_PREFIX".to_string(), "wp_".to_string()),
+        ("WORDPRESS_DEBUG".to_string(), "1".to_string()),
+        ("WORDPRESS_CONFIG_EXTRA".to_string(), "".to_string()),
+    ]);
+
+    let adminer_env_vars = merge_env_vars(default_adminer_vars, &None);
+    let mysql_env_vars = merge_env_vars(default_mysql_vars, &None);
+    let wordpress_env_vars = merge_env_vars(default_wordpress_vars, &user_env_vars.wordpress);
+
+    Ok(crate::EnvVars {
+        adminer: adminer_env_vars,
+        mysql: mysql_env_vars,
+        wordpress: wordpress_env_vars,
+    })
+}
+
+pub async fn generate_nginx_config(
+    config: &crate::AppConfig,
+    instance_label: &str,
+    nginx_port: u32,
+    adminer_name: &str,
+    wordpress_name: &str,
+    home_dir: &PathBuf
+) -> Result<PathBuf, AnyhowError> {
+    let nginx_config = format!(
+        r#"
+server {{
+    listen {nginx_port};
+    server_name localhost;
+
+    location / {{
+        proxy_pass http://{wordpress_name}:80/;
+        proxy_set_header Host $host:$server_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+
+server {{
+    listen 8080;
+    server_name localhost;
+
+    location / {{
+        proxy_pass http://{adminer_name}:8080/;
+        proxy_set_header Host $host:$server_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+        "#,
+        nginx_port = nginx_port,
+        wordpress_name = wordpress_name,
+        adminer_name = adminer_name,
+
+    );
+
+    let nginx_config_dir = home_dir.join(format!("{}/{}/nginx", &config.custom_root, instance_label));
+    utils::create_path(&nginx_config_dir).await?;
+    let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
+    fs::write(&nginx_config_path, nginx_config).await?;
+
+    Ok(nginx_config_path)
+}
+
+pub async fn generate_wpcli_config(
+    config: &crate::AppConfig,
+    instance_label: &str,
+    home_dir: &PathBuf
+) -> Result<(), AnyhowError> {
+    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
+    let wpcli_yml = format!(
+        r#"path: app
+require:
+  - wp-cli.local.php
+        "#,
+    );
+
+    let wpcli_php = format!(
+        r#"<?php
+
+define('DB_HOST', 'localhost:{instance_dir}mysql/mysqld.sock');
+define('DB_NAME', 'wordpress');
+define('DB_USER', 'wordpress');
+define('DB_PASSWORD', 'password');
+
+// disables errors when using wp-cli
+error_reporting(E_ERROR);
+define('WP_DEBUG', false);
+        "#,
+        instance_dir = instance_dir.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
+    );
+
+    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
+    utils::create_path(&instance_dir).await?;
+    let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
+    let wpcli_php_path  = instance_dir.join("wp-cli.local.php");
+    fs::write(&wpcli_yml_path, wpcli_yml).await?;
+    fs::write(&wpcli_php_path, wpcli_php).await?;
 
     Ok(())
 }

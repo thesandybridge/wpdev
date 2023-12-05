@@ -1,30 +1,23 @@
-use std::net::{TcpListener, SocketAddr};
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-use shiplift::{Docker, NetworkCreateOptions, Error as DockerError};
+use tokio::fs;
+use serde::{Serialize, Deserialize};
+use anyhow::{Result, Error as AnyhowError};
+use log::info;
+use shiplift::{Docker, Error as DockerError};
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
 
-use dirs;
-
-use log::{info, error};
-
-use anyhow::{Result, Error as AnyhowError};
-
-use tokio::fs;
-
-use serde::{Serialize, Deserialize};
-
-use crate::config::{self, AppConfig};
+use crate::utils;
+use crate::config;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Instance {
     pub container_ids: Vec<String>,
     pub uuid: String,
-    pub status: InstanceStatus,
-    pub container_statuses: HashMap<String, ContainerStatus>,
+    pub status: crate::InstanceStatus,
+    pub container_statuses: HashMap<String, crate::ContainerStatus>,
     pub nginx_port: u32,
     pub adminer_port: u32,
     pub wordpress_data: Option<InstanceData>,
@@ -45,60 +38,8 @@ pub struct InstanceData {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceContainer {
     pub container_id: String,
-    pub container_status: ContainerStatus,
-}
-
-#[derive(Deserialize)]
-pub struct ContainerEnvVars {
-    wordpress: Option<HashMap<String, String>>,
-}
-
-impl Default for ContainerEnvVars {
-    fn default() -> Self {
-        ContainerEnvVars {
-            wordpress: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ContainerOperation {
-    Start,
-    Stop,
-    Restart,
-    Delete,
-    Inspect,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ContainerStatus {
-    Running,
-    Stopped,
-    Restarting,
-    Paused,
-    Exited,
-    Dead,
-    Unknown,
-    NotFound,
-    Deleted,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum InstanceStatus {
-    Running,
-    Stopped,
-    Restarting,
-    Paused,
-    Exited,
-    Dead,
-    Unknown,
-    PartiallyRunning,
-}
-
-impl Default for InstanceStatus {
-    fn default() -> Self {
-        InstanceStatus::Unknown
-    }
+    pub container_image: crate::ContainerImage,
+    pub container_status: crate::ContainerStatus,
 }
 
 pub enum InstanceSelection {
@@ -106,227 +47,20 @@ pub enum InstanceSelection {
     One(String)
 }
 
-/// Creates a Docker Network if it doesn't already exist.
-///
-/// # Arguments
-///
-/// * `docker` - &Docker
-/// * `network_name` - name of the network
-pub async fn create_network_if_not_exists(
-    docker: &Docker,
-    network_name: &str
-) -> Result<(), shiplift::Error> {
-    let networks = docker.networks().list(&Default::default()).await?;
-    if networks.iter().any(|network| network.name == network_name) {
-        // Network already exists
-        info!("Network '{}' already exists, skipping...", network_name);
-        Ok(())
-    } else {
-        // Create network
-        let network_options = NetworkCreateOptions::builder(network_name).build();
-
-        match docker.networks().create(&network_options).await {
-            Ok(container) => {
-                info!("Wordpress network successfully created: {:?}", container);
-                Ok(())
-            }
-            Err(err) => {
-                error!("Error creating network '{}': {:?}", network_name, err);
-                Err(err)
-            }
-        }
-    }
-}
-
-
-struct EnvVars {
-    adminer: Vec<String>,
-    mysql: Vec<String>,
-    wordpress: Vec<String>,
-}
-
-fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<String, String>>) -> Vec<String> {
-    let mut env_vars = defaults;
-
-    if let Some(overrides) = overrides {
-        for (key, value) in overrides.iter() {
-            env_vars.insert(key.clone(), value.clone());
-        }
-    }
-
-    env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
-}
-
-async fn initialize_env_vars(
-    instance_label: &str,
-    user_env_vars: &ContainerEnvVars,
-) -> Result<EnvVars, AnyhowError> {
-
-    let default_adminer_vars = HashMap::from([
-        ("ADMINER_DESIGN".to_string(), "nette".to_string()),
-        ("ADMINER_PLUGINS".to_string(), "tables-filter tinymce".to_string()),
-        ("MYSQL_PORT".to_string(), "3306".to_string()),
-        ("ADMINER_DEFAULT_SERVER".to_string(), format!("{}-mysql", instance_label).to_string()),
-        ("ADMINER_DEFAULT_USERNAME".to_string(), "wordpress".to_string()),
-        ("ADMINER_DEFAULT_PASSWORD".to_string(), "password".to_string()),
-        ("ADMINER_DEFAULT_DATABASE".to_string(), "wordpress".to_string()),
-    ]);
-
-    let default_mysql_vars = HashMap::from([
-        ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
-        ("MYSQL_DATABASE".to_string(),"wordpress".to_string()),
-        ("MYSQL_USER".to_string(),"wordpress".to_string()),
-        ("MYSQL_PASSWORD".to_string(),"password".to_string()),
-    ]);
-
-    let default_wordpress_vars = HashMap::from([
-        ("WORDPRESS_DB_HOST".to_string(), format!("{}-mysql", instance_label).to_string()),
-        ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
-        ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
-        ("WORDPRESS_DB_NAME".to_string(), "wordpress".to_string()),
-        ("WORDPRESS_TABLE_PREFIX".to_string(), "wp_".to_string()),
-        ("WORDPRESS_DEBUG".to_string(), "1".to_string()),
-        ("WORDPRESS_CONFIG_EXTRA".to_string(), "".to_string()),
-    ]);
-
-    let adminer_env_vars = merge_env_vars(default_adminer_vars, &None);
-    let mysql_env_vars = merge_env_vars(default_mysql_vars, &None);
-    let wordpress_env_vars = merge_env_vars(default_wordpress_vars, &user_env_vars.wordpress);
-
-    Ok(EnvVars {
-        adminer: adminer_env_vars,
-        mysql: mysql_env_vars,
-        wordpress: wordpress_env_vars,
-    })
-}
-
-
-
-async fn find_free_port() -> Result<u32, AnyhowError> {
-    // Bind to port 0; the OS will assign a random available port
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let socket_addr: SocketAddr = listener.local_addr()?;
-    let port = socket_addr.port();
-
-    Ok(u32::from(port))
-}
-
-async fn generate_nginx_config(
-    config: &AppConfig,
-    instance_label: &str,
-    nginx_port: u32,
-    adminer_name: &str,
-    wordpress_name: &str,
-    home_dir: &PathBuf
-) -> Result<PathBuf, AnyhowError> {
-    let nginx_config = format!(
-        r#"
-server {{
-    listen {nginx_port};
-    server_name localhost;
-
-    location / {{
-        proxy_pass http://{wordpress_name}:80/;
-        proxy_set_header Host $host:$server_port;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }}
-}}
-
-server {{
-    listen 8080;
-    server_name localhost;
-
-    location / {{
-        proxy_pass http://{adminer_name}:8080/;
-        proxy_set_header Host $host:$server_port;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }}
-}}
-        "#,
-        nginx_port = nginx_port,
-        wordpress_name = wordpress_name,
-        adminer_name = adminer_name,
-
-    );
-
-    let nginx_config_dir = home_dir.join(format!("{}/{}/nginx", &config.custom_root, instance_label));
-    create_path(&nginx_config_dir).await?;
-    let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
-    fs::write(&nginx_config_path, nginx_config).await?;
-
-    Ok(nginx_config_path)
-}
-
-async fn generate_wpcli_config(
-    config: &AppConfig,
-    instance_label: &str,
-    home_dir: &PathBuf
-) -> Result<(), AnyhowError> {
-    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
-    let wpcli_yml = format!(
-        r#"path: app
-require:
-  - wp-cli.local.php
-        "#,
-    );
-
-    let wpcli_php = format!(
-        r#"<?php
-
-define('DB_HOST', 'localhost:{instance_dir}mysql/mysqld.sock');
-define('DB_NAME', 'wordpress');
-define('DB_USER', 'wordpress');
-define('DB_PASSWORD', 'password');
-
-// disables errors when using wp-cli
-error_reporting(E_ERROR);
-define('WP_DEBUG', false);
-        "#,
-        instance_dir = instance_dir.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
-    );
-
-    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
-    create_path(&instance_dir).await?;
-    let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
-    let wpcli_php_path  = instance_dir.join("wp-cli.local.php");
-    fs::write(&wpcli_yml_path, wpcli_yml).await?;
-    fs::write(&wpcli_php_path, wpcli_php).await?;
-
-    Ok(())
-}
-
-async fn create_path(path: &PathBuf) -> Result<&PathBuf, AnyhowError> {
-    fs::create_dir_all(&path).await?;
-    Ok(path)
-}
-
-/// Parses a port from a label, providing a default value if necessary.
-fn parse_port(port_label: Option<&String>) -> u32 {
-    port_label
-        .and_then(|port| port.parse::<u32>().ok())
-        .unwrap_or(0)
-}
-
-type ContainerInfo = (ContainerOptions, &'static str);
-
 impl InstanceContainer {
     pub async fn new(
         docker: &Docker,
         options: ContainerOptions,
         container_type: &str,
         container_ids: &mut Vec<String>,
-        ) -> Result<(String, ContainerStatus), AnyhowError> {
+        ) -> Result<(String, crate::ContainerStatus), AnyhowError> {
         match docker.containers().create(&options).await {
             Ok(container) => {
                 container_ids.push(container.id.clone());
                 log::info!("{} container successfully created: {:?}", container_type, container);
 
                 match Self::get_status(docker, &container.id).await {
-                    Ok(status) => Ok((container.id, status.unwrap_or(ContainerStatus::Unknown))),
+                    Ok(status) => Ok((container.id, status.unwrap_or(crate::ContainerStatus::Unknown))),
                     Err(err) => {
                         log::error!("Failed to fetch status for container {}: {:?}", container.id, err);
                         Err(err.into())
@@ -343,13 +77,13 @@ impl InstanceContainer {
     pub async fn get_status(
         docker: &Docker,
         container_id: &str,
-        ) -> Result<Option<ContainerStatus>, DockerError> {
+        ) -> Result<Option<crate::ContainerStatus>, DockerError> {
         match docker.containers().get(container_id).inspect().await {
             Ok(container_info) => {
                 let status = match container_info.state.status.as_str() {
-                    "running" => ContainerStatus::Running,
-                    "exited" => ContainerStatus::Stopped,
-                    _ => ContainerStatus::Unknown,
+                    "running" => crate::ContainerStatus::Running,
+                    "exited" => crate::ContainerStatus::Stopped,
+                    _ => crate::ContainerStatus::Unknown,
                 };
                 Ok(Some(status))
             },
@@ -373,12 +107,12 @@ impl Instance {
         let contents = fs::read_to_string(&instance_dir).await?;
         let instance_data: InstanceData = toml::from_str(&contents)?;
 
-        let nginx_port = parse_port(labels.get("nginx_port"));
-        let adminer_port = parse_port(labels.get("adminer_port"));
+        let nginx_port = utils::parse_port(labels.get("nginx_port"));
+        let adminer_port = utils::parse_port(labels.get("adminer_port"));
         let instance = Self {
             container_ids: Vec::new(),
             uuid: instance_label.to_string(),
-            status: InstanceStatus::default(),
+            status: crate::InstanceStatus::default(),
             container_statuses: HashMap::new(),
             nginx_port,
             adminer_port,
@@ -389,10 +123,10 @@ impl Instance {
     }
 
     async fn parse(
-        env_vars: &EnvVars,
+        env_vars: &crate::EnvVars,
         nginx_port: &u32,
         adminer_port: &u32,
-        config: &AppConfig,
+        config: &crate::AppConfig,
         home_dir: &PathBuf,
         instance_label: &str,
         ) -> Result<InstanceData> {
@@ -433,19 +167,19 @@ impl Instance {
         docker: &Docker,
         network_name: &str,
         instance_label: &str,
-        user_env_vars: ContainerEnvVars,
+        user_env_vars: crate::ContainerEnvVars,
         ) -> Result<Self> {
 
         let config = config::read_or_create_config().await?;
         let mut container_ids = Vec::new();
         let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
 
-        let env_vars = initialize_env_vars(instance_label, &user_env_vars).await?;
+        let env_vars = config::initialize_env_vars(instance_label, &user_env_vars).await?;
 
-        create_network_if_not_exists(&docker, &network_name).await?;
+        config::create_network_if_not_exists(&docker, &network_name).await?;
 
-        let nginx_port = find_free_port().await?;
-        let adminer_port = find_free_port().await?;
+        let nginx_port = utils::find_free_port().await?;
+        let adminer_port = utils::find_free_port().await?;
 
         let mut labels = HashMap::new();
         let instance_label_str = instance_label.to_string();
@@ -456,28 +190,28 @@ impl Instance {
         labels.insert("adminer_port", adminer_port_str.as_str());
 
         let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
-        let mysql_socket_path = create_path(&mysql_config_dir).await?;
+        let mysql_socket_path = utils::create_path(&mysql_config_dir).await?;
 
         let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
             .network_mode(crate::NETWORK_NAME)
             .env(&env_vars.mysql)
             .labels(&labels)
             .user("1000:1000")
-            .name(&format!("{}-mysql", &instance_label))
+            .name(&format!("{}-{}", &instance_label, crate::ContainerImage::MySQL.to_string()))
             .volumes(vec![
                      &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)
             ])
             .build();
 
         let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
-        let wordpress_path = create_path(&instance_path).await?;
+        let wordpress_path = utils::create_path(&instance_path).await?;
 
-        let nginx_config_path = generate_nginx_config(
+        let nginx_config_path = config::generate_nginx_config(
             &config,
             instance_label,
             nginx_port,
-            &format!("{}-adminer", &instance_label),
-            &format!("{}-wordpress", &instance_label),
+            &format!("{}-{}", &instance_label, crate::ContainerImage::Adminer.to_string()),
+            &format!("{}-{}", &instance_label, crate::ContainerImage::Wordpress.to_string()),
             &home_dir,
             ).await?;
 
@@ -486,7 +220,7 @@ impl Instance {
             .env(&env_vars.wordpress)
             .labels(&labels)
             .user("1000:1000")
-            .name(&format!("{}-wordpress", &instance_label))
+            .name(&format!("{}-{}", &instance_label, crate::ContainerImage::Wordpress.to_string()))
             .volumes(vec![
                      &format!("{}:/var/www/html/", wordpress_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?),
             ])
@@ -495,7 +229,7 @@ impl Instance {
         let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
             .network_mode(crate::NETWORK_NAME)
             .labels(&labels)
-            .name(&format!("{}-nginx", instance_label))
+            .name(&format!("{}-{}", instance_label, crate::ContainerImage::Nginx.to_string()))
             .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)])
             .expose(nginx_port, "tcp", nginx_port)
             .build();
@@ -504,7 +238,7 @@ impl Instance {
             .network_mode(crate::NETWORK_NAME)
             .env(&env_vars.adminer)
             .labels(&labels)
-            .name(&format!("{}-adminer", instance_label))
+            .name(&format!("{}-{}", instance_label, crate::ContainerImage::Adminer.to_string()))
             .expose(8080, "tcp", adminer_port)
             .build();
 
@@ -520,20 +254,20 @@ impl Instance {
         let mut instance = Instance {
             container_ids: Vec::new(),
             uuid: instance_label.to_string(),
-            status: InstanceStatus::default(),
+            status: crate::InstanceStatus::default(),
             container_statuses: HashMap::new(),
             nginx_port,
             adminer_port,
             wordpress_data: Some(wordpress_data),
         };
 
-        generate_wpcli_config(
+        config::generate_wpcli_config(
             &config,
             instance_label,
             &home_dir,
             ).await?;
 
-        let containers_to_create: Vec<ContainerInfo> = vec![
+        let containers_to_create: Vec<crate::ContainerInfo> = vec![
             (mysql_options, "MySQL"),
             (wordpress_options, "Wordpress"),
             (nginx_options, "Nginx"),
@@ -608,14 +342,16 @@ impl Instance {
         Ok(Self::list(docker, network_name, containers).await?)
     }
 
-    pub fn get_status(container_statuses: &HashMap<String, ContainerStatus>) -> InstanceStatus {
-        let all_running = container_statuses.values().all(|status| *status == ContainerStatus::Running);
-        let any_running = container_statuses.values().any(|status| *status == ContainerStatus::Running);
+    pub fn get_status(
+        container_statuses: &HashMap<String, crate::ContainerStatus>
+        ) -> crate::InstanceStatus {
+        let all_running = container_statuses.values().all(|status| *status == crate::ContainerStatus::Running);
+        let any_running = container_statuses.values().any(|status| *status == crate::ContainerStatus::Running);
 
         match (all_running, any_running) {
-            (true, _) => InstanceStatus::Running,
-            (false, true) => InstanceStatus::PartiallyRunning,
-            (false, false) => InstanceStatus::Stopped,
+            (true, _) => crate::InstanceStatus::Running,
+            (false, true) => crate::InstanceStatus::PartiallyRunning,
+            (false, false) => crate::InstanceStatus::Stopped,
         }
     }
 }
@@ -624,7 +360,7 @@ pub async fn handle_instance(
     docker: &Docker,
     network_name: &str,
     instance_uuid: &str,
-    operation: ContainerOperation,
+    operation: crate::ContainerOperation,
 ) -> Result<Instance, AnyhowError> {
     let instances = Instance::list_all(docker, network_name).await?;
 
@@ -633,42 +369,42 @@ pub async fn handle_instance(
         for container_id in &instance.container_ids {
             let current_container_status = InstanceContainer::get_status(docker, container_id).await?;
             match operation {
-                ContainerOperation::Start => {
-                    if current_container_status != Some(ContainerStatus::Running) {
+                crate::ContainerOperation::Start => {
+                    if current_container_status != Some(crate::ContainerStatus::Running) {
                         docker.containers().get(container_id).start().await?;
                         info!("{} container successfully started", container_id);
                     } else {
                         info!("{} container is already running, skipping start operation", container_id);
                     }
                 }
-                ContainerOperation::Stop => {
-                    if current_container_status == Some(ContainerStatus::Running) {
+                crate::ContainerOperation::Stop => {
+                    if current_container_status == Some(crate::ContainerStatus::Running) {
                         docker.containers().get(container_id).stop(None).await?;
                         info!("{} container successfully stopped", container_id);
                     } else {
                         info!("{} container is already stopped, skipping stop operation", container_id);
                     }
                 }
-                ContainerOperation::Restart => {
-                    if current_container_status == Some(ContainerStatus::Running) {
+                crate::ContainerOperation::Restart => {
+                    if current_container_status == Some(crate::ContainerStatus::Running) {
                         docker.containers().get(container_id).restart(None).await?;
                         info!("{} container successfully restarted", container_id);
                     } else {
                         info!("{} container is not running, skipping restart operation", container_id);
                     }
                 }
-                ContainerOperation::Delete => {
-                    if current_container_status == Some(ContainerStatus::Running) {
+                crate::ContainerOperation::Delete => {
+                    if current_container_status == Some(crate::ContainerStatus::Running) {
                         // First, stop the container if it's running
                         docker.containers().get(container_id).stop(None).await?;
                         info!("{} container successfully stopped before deletion", container_id);
                     }
                     // Then delete the container
                     docker.containers().get(container_id).delete().await?;
-                    container_statuses.insert(container_id.clone(), ContainerStatus::Deleted);
+                    container_statuses.insert(container_id.clone(), crate::ContainerStatus::Deleted);
                     info!("{} container successfully deleted", container_id);
                 }
-                ContainerOperation::Inspect => {
+                crate::ContainerOperation::Inspect => {
                     docker.containers().get(container_id).inspect().await?;
                     info!("{} container successfully inspected", container_id);
                 }
@@ -680,7 +416,7 @@ pub async fn handle_instance(
             if let Some(status) = updated_status {
                 container_statuses.insert(container_id.clone(), status);
             } else {
-                container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
+                container_statuses.insert(container_id.clone(), crate::ContainerStatus::NotFound);
             }
         }
 
@@ -699,7 +435,7 @@ pub async fn handle_instance(
 async fn handle_all_instances(
     docker: &Docker,
     network_name: &str,
-    operation: ContainerOperation,
+    operation: crate::ContainerOperation,
 ) -> Result<Vec<Instance>, AnyhowError> {
     let instances = Instance::list_all(docker, network_name).await?;
 
@@ -725,7 +461,7 @@ pub async fn instance_handler(
     docker: &Docker,
     network_name: &str,
     instance_selection: InstanceSelection,
-    operation: ContainerOperation,
+    operation: crate::ContainerOperation,
 ) -> Result<Vec<Instance>, AnyhowError> {
     match instance_selection {
         InstanceSelection::All => {
