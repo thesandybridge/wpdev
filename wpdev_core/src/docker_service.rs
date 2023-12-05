@@ -326,82 +326,14 @@ async fn create_path(path: &PathBuf) -> Result<&PathBuf, AnyhowError> {
     Ok(path)
 }
 
-async fn extract_instance_data(
-    env_vars: &EnvVars,
-    nginx_port: &u32,
-    adminer_port: &u32,
-    config: &AppConfig,
-    home_dir: &PathBuf,
-    instance_label: &str,
-) -> Result<InstanceData> {
-    let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
-
-    fn extract_value(vars: &Vec<String>, key: &str) -> String {
-        vars.iter()
-            .find_map(|s| {
-                let parts: Vec<&str> = s.splitn(2, '=').collect();
-                if parts.len() == 2 && parts[0] == key {
-                    Some(parts[1].to_string())
-                } else {
-                    None
-                }
-            })
-        .unwrap_or_else(|| "defaultValue".to_string())
-    }
-
-    let instance_data = InstanceData {
-        admin_user: extract_value(&env_vars.wordpress, "WORDPRESS_DB_USER"),
-        admin_password: extract_value(&env_vars.wordpress, "WORDPRESS_DB_PASSWORD"),
-        admin_email: "admin@example.com".to_string(),
-        site_title: "My Wordpress Site".to_string(),
-        site_url: format!("{}:{}", config.site_url, nginx_port),
-        adminer_url: format!("{}:{}", config.adminer_url, adminer_port),
-        adminer_user: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_USERNAME"),
-        adminer_password: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_PASSWORD"),
-    };
-
-    fs::write(&instance_dir, toml::to_string(&instance_data).unwrap()).await?;
-    info!("Instance data written to {:?}", instance_dir);
-
-    Ok(instance_data)
-
-
+/// Parses a port from a label, providing a default value if necessary.
+fn parse_port(port_label: Option<&String>) -> u32 {
+    port_label
+        .and_then(|port| port.parse::<u32>().ok())
+        .unwrap_or(0)
 }
 
 type ContainerInfo = (ContainerOptions, &'static str);
-
-
-async fn list_instances(
-    docker: &Docker,
-    network_name: &str,
-    containers: Vec<Container>
-) -> Result<HashMap<String, Instance>, AnyhowError> {
-    let mut instances: HashMap<String, Instance> = HashMap::new();
-
-    for container in containers {
-        match docker.containers().get(&container.id).inspect().await {
-            Ok(details) => {
-                if details.network_settings.networks.contains_key(network_name) {
-                    if let Some(labels) = &details.config.labels {
-                        if let Some(instance_label) = labels.get("instance") {
-                            let instance = instances.entry(instance_label.to_string())
-                                .or_insert(Instance::default(instance_label, labels).await?);
-
-                            instance.container_ids.push(container.id.clone());
-
-                        }
-                    }
-                }
-            },
-            Err(e) => {
-                // Log the error or handle it appropriately
-                eprintln!("Error inspecting container {}: {}", container.id, e);
-            }
-        }
-    }
-
-    Ok(instances)
-}
 
 impl Instance {
     pub async fn default(
@@ -427,6 +359,47 @@ impl Instance {
         };
 
         Ok(instance)
+    }
+
+    async fn parse(
+        env_vars: &EnvVars,
+        nginx_port: &u32,
+        adminer_port: &u32,
+        config: &AppConfig,
+        home_dir: &PathBuf,
+        instance_label: &str,
+        ) -> Result<InstanceData> {
+        let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
+
+        fn extract_value(vars: &Vec<String>, key: &str) -> String {
+            vars.iter()
+                .find_map(|s| {
+                    let parts: Vec<&str> = s.splitn(2, '=').collect();
+                    if parts.len() == 2 && parts[0] == key {
+                        Some(parts[1].to_string())
+                    } else {
+                        None
+                    }
+                })
+            .unwrap_or_else(|| "defaultValue".to_string())
+        }
+
+        let instance_data = InstanceData {
+            admin_user: extract_value(&env_vars.wordpress, "WORDPRESS_DB_USER"),
+            admin_password: extract_value(&env_vars.wordpress, "WORDPRESS_DB_PASSWORD"),
+            admin_email: "admin@example.com".to_string(),
+            site_title: "My Wordpress Site".to_string(),
+            site_url: format!("{}:{}", config.site_url, nginx_port),
+            adminer_url: format!("{}:{}", config.adminer_url, adminer_port),
+            adminer_user: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_USERNAME"),
+            adminer_password: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_PASSWORD"),
+        };
+
+        fs::write(&instance_dir, toml::to_string(&instance_data).unwrap()).await?;
+        info!("Instance data written to {:?}", instance_dir);
+
+        Ok(instance_data)
+
     }
 
     pub async fn new(
@@ -508,7 +481,7 @@ impl Instance {
             .expose(8080, "tcp", adminer_port)
             .build();
 
-        let wordpress_data = extract_instance_data(
+        let wordpress_data = Self::parse(
             &env_vars,
             &nginx_port,
             &adminer_port,
@@ -552,55 +525,64 @@ impl Instance {
 
     }
 
+    async fn list(
+        docker: &Docker,
+        network_name: &str,
+        containers: Vec<Container>
+        ) -> Result<HashMap<String, Instance>, AnyhowError> {
+        let mut instances: HashMap<String, Instance> = HashMap::new();
+
+        for container in containers {
+            match docker.containers().get(&container.id).inspect().await {
+                Ok(details) => {
+                    if details.network_settings.networks.contains_key(network_name) {
+                        if let Some(labels) = &details.config.labels {
+                            if let Some(instance_label) = labels.get("instance") {
+                                let instance = instances.entry(instance_label.to_string())
+                                    .or_insert(Instance::default(instance_label, labels).await?);
+
+                                instance.container_ids.push(container.id.clone());
+
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    // Log the error or handle it appropriately
+                    eprintln!("Error inspecting container {}: {}", container.id, e);
+                }
+            }
+        }
+
+        Ok(instances)
+    }
+
     pub async fn list_all(
         docker: &Docker,
-        network_name: &str
-    ) -> Result<HashMap<String, Instance>, AnyhowError> {
-        list_all_instances(docker, network_name).await
+        network_name: &str,
+        ) -> Result<HashMap<String, Instance>, AnyhowError> {
+        let containers = docker
+            .containers()
+            .list(&ContainerListOptions::builder()
+                  .all()
+                  .build())
+            .await?;
+        Ok(Self::list(docker, network_name, containers).await?)
+    }
+
+    pub async fn list_running(
+        docker: &Docker,
+        network_name: &str,
+        ) -> Result<HashMap<String, Instance>, AnyhowError> {
+        let containers = docker
+            .containers()
+            .list(&ContainerListOptions::default())
+            .await?;
+        Ok(Self::list(docker, network_name, containers).await?)
     }
 }
-/// Parses a port from a label, providing a default value if necessary.
-fn parse_port(port_label: Option<&String>) -> u32 {
-    port_label
-        .and_then(|port| port.parse::<u32>().ok())
-        .unwrap_or(0)
-}
 
-/// List all instances.
-///
-/// # Arguments
-///
-/// * `docker` - [TODO:description]
-/// * `network_name` - [TODO:description]
-pub async fn list_all_instances(
-    docker: &Docker,
-    network_name: &str
-) -> Result<HashMap<String, Instance>, AnyhowError> {
-    let containers = docker
-        .containers()
-        .list(&ContainerListOptions::builder()
-              .all()
-              .build())
-        .await?;
-    Ok(list_instances(docker, network_name, containers).await?)
-}
 
-/// List all instances that are currently running.
-///
-/// # Arguments
-///
-/// * `docker` - [TODO:description]
-/// * `network_name` - [TODO:description]
-pub async fn list_running_instances(
-    docker: &Docker,
-    network_name: &str
-) -> Result<HashMap<String, Instance>, AnyhowError> {
-    let containers = docker
-        .containers()
-        .list(&ContainerListOptions::default())
-        .await?;
-   Ok(list_instances(docker, network_name, containers).await?)
-}
 
 #[derive(Debug)]
 struct CustomError(String);
@@ -650,7 +632,7 @@ pub async fn handle_instance(
     instance_uuid: &str,
     operation: ContainerOperation,
 ) -> Result<Instance, AnyhowError> {
-    let instances = list_all_instances(docker, network_name).await?;
+    let instances = Instance::list_all(docker, network_name).await?;
 
     if let Some(mut instance) = instances.get(instance_uuid).cloned() {
         let mut container_statuses = HashMap::new();
@@ -725,7 +707,7 @@ async fn handle_all_instances(
     network_name: &str,
     operation: ContainerOperation,
 ) -> Result<Vec<Instance>, AnyhowError> {
-    let instances = list_all_instances(docker, network_name).await?;
+    let instances = Instance::list_all(docker, network_name).await?;
 
     let mut instances_group = Vec::new();
 

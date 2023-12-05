@@ -11,7 +11,7 @@ use serde_json::Value as Json;
 
 pub async fn list_instances() -> Result<Json, AnyhowError> {
     let docker = Docker::new();
-    match docker_service::list_all_instances(&docker, wpdev_core::NETWORK_NAME).await {
+    match docker_service::Instance::list_all(&docker, wpdev_core::NETWORK_NAME).await {
         Ok(mut instances) => {
             for (_, instance) in instances.iter_mut() {
                 for container_id in &instance.container_ids {
