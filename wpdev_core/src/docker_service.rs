@@ -385,7 +385,7 @@ async fn list_instances(
                     if let Some(labels) = &details.config.labels {
                         if let Some(instance_label) = labels.get("instance") {
                             let instance = instances.entry(instance_label.to_string())
-                                .or_insert(create_new_instance(instance_label, labels).await?);
+                                .or_insert(Instance::default(instance_label, labels).await?);
 
                             instance.container_ids.push(container.id.clone());
 
@@ -403,44 +403,30 @@ async fn list_instances(
     Ok(instances)
 }
 
-/// Creates a new instance with initial settings based on provided labels.
-async fn create_new_instance(
-    instance_label: &str,
-    labels: &HashMap<String, String>
-) -> Result<Instance, AnyhowError> {
-    let config = config::read_or_create_config().await?;
-    let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
-    let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
-    let contents = fs::read_to_string(&instance_dir).await?;
-    let instance_data: InstanceData = toml::from_str(&contents)?;
-
-    let nginx_port = parse_port(labels.get("nginx_port"));
-    let adminer_port = parse_port(labels.get("adminer_port"));
-
-    let instance = Instance {
-        container_ids: Vec::new(),
-        uuid: instance_label.to_string(),
-        status: InstanceStatus::Unknown,
-        container_statuses: HashMap::new(),
-        nginx_port,
-        adminer_port,
-        wordpress_data: instance_data.into(),
-    };
-
-    Ok(instance)
-}
-
 impl Instance {
-    pub fn default() -> Self {
-        Instance {
+    pub async fn default(
+        instance_label: &str,
+        labels: &HashMap<String, String>
+        ) -> Result<Self> {
+        let config = config::read_or_create_config().await?;
+        let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
+        let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
+        let contents = fs::read_to_string(&instance_dir).await?;
+        let instance_data: InstanceData = toml::from_str(&contents)?;
+
+        let nginx_port = parse_port(labels.get("nginx_port"));
+        let adminer_port = parse_port(labels.get("adminer_port"));
+        let instance = Instance {
             container_ids: Vec::new(),
-            uuid: String::new(),
-            status: InstanceStatus::default(),
+            uuid: instance_label.to_string(),
+            status: InstanceStatus::Unknown,
             container_statuses: HashMap::new(),
-            nginx_port: 0,
-            adminer_port: 0,
-            wordpress_data: None,
-        }
+            nginx_port,
+            adminer_port,
+            wordpress_data: instance_data.into(),
+        };
+
+        Ok(instance)
     }
 
     pub async fn new(
@@ -564,6 +550,13 @@ impl Instance {
 
         Ok(instance)
 
+    }
+
+    pub async fn list_all(
+        docker: &Docker,
+        network_name: &str
+    ) -> Result<HashMap<String, Instance>, AnyhowError> {
+        list_all_instances(docker, network_name).await
     }
 }
 /// Parses a port from a label, providing a default value if necessary.
