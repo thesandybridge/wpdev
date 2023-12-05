@@ -30,8 +30,6 @@ pub struct Instance {
     pub wordpress_data: Option<InstanceData>,
 }
 
-
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceData {
     pub admin_user: String,
@@ -325,7 +323,7 @@ impl Instance {
         let instance = Instance {
             container_ids: Vec::new(),
             uuid: instance_label.to_string(),
-            status: InstanceStatus::Unknown,
+            status: InstanceStatus::default(),
             container_statuses: HashMap::new(),
             nginx_port,
             adminer_port,
@@ -467,7 +465,7 @@ impl Instance {
         let mut instance = Instance {
             container_ids: Vec::new(),
             uuid: instance_label.to_string(),
-            status: InstanceStatus::Stopped,
+            status: InstanceStatus::default(),
             container_statuses: HashMap::new(),
             nginx_port,
             adminer_port,
