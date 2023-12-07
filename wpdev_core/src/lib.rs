@@ -59,6 +59,7 @@ pub enum ContainerImage {
     MySQL,
     Nginx,
     Wordpress,
+    Unknown
 }
 
 impl ContainerImage {
@@ -68,6 +69,7 @@ impl ContainerImage {
             ContainerImage::MySQL => "mysql".to_string(),
             ContainerImage::Nginx => "nginx".to_string(),
             ContainerImage::Wordpress => "wordpress".to_string(),
+            ContainerImage::Unknown => "unknown".to_string(),
         }
     }
 
@@ -77,6 +79,7 @@ impl ContainerImage {
             "mysql" => Some(ContainerImage::MySQL),
             "nginx" => Some(ContainerImage::Nginx),
             "wordpress" => Some(ContainerImage::Wordpress),
+            "unknown" => Some(ContainerImage::Unknown),
             _ => None,
         }
     }

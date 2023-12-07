@@ -7,6 +7,7 @@ use prettytable::{Table, Row, Cell, format};
 use prettytable::row;
 use serde_json::Value;
 use anyhow::{Result, Error as AnyhowError};
+use std::collections::HashMap;
 
 use std::path::PathBuf;
 use tokio::fs;
@@ -78,10 +79,13 @@ pub async fn create_path(path: &PathBuf) -> Result<&PathBuf, AnyhowError> {
 }
 
 /// Parses a port from a label, providing a default value if necessary.
-pub fn parse_port(port_label: Option<&String>) -> u32 {
-    port_label
+pub fn parse_port(port_label: Option<&String>) -> Result<u32> {
+    let port = port_label
         .and_then(|port| port.parse::<u32>().ok())
-        .unwrap_or(0)
+        .unwrap_or(0);
+
+    Ok(port)
+
 }
 
 pub async fn find_free_port() -> Result<u32, AnyhowError> {
@@ -92,3 +96,11 @@ pub async fn find_free_port() -> Result<u32, AnyhowError> {
 
     Ok(u32::from(port))
 }
+
+
+pub fn create_labels(image: crate::ContainerImage, hashmap: HashMap<String, String>) -> HashMap<String, String> {
+    let mut new_labels = hashmap.clone();
+    new_labels.insert("image".to_string(), image.to_string());
+    new_labels
+}
+

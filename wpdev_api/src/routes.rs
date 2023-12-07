@@ -28,34 +28,40 @@ use wpdev_core:: {
 #[get("/instances")]
 pub async fn list_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
     let docker = Docker::new();
+
     match Instance::list_all(&docker, wpdev_core::NETWORK_NAME).await {
         Ok(mut instances) => {
-            for (_, instance) in instances.iter_mut() {
-                for container_id in &instance.container_ids {
+            for (instance_id, instance) in instances.iter_mut() {
+                info!("Inspecting instance with ID: {}", instance_id);
+                for (container_id, container) in instance.containers.iter_mut() {
+                    info!("Fetching status for container ID: {}", container_id);
                     match InstanceContainer::get_status(&docker, container_id).await {
                         Ok(Some(status)) => {
-                            instance.container_statuses.insert(container_id.clone(), status);
+                            info!("Status for container ID {}: {:?}", container_id, status);
+                            container.container_status = status;
                         },
                         Ok(None) => {
-                            instance.container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
+                            warn!("Container ID {} not found. Setting status to NotFound.", container_id);
+                            container.container_status = ContainerStatus::NotFound;
                         },
                         Err(err) => {
+                            error!("Error fetching status for container ID {}: {}", container_id, err);
                             return Err(Custom(Status::InternalServerError, format!("Error fetching status for container {}: {}", container_id, err.to_string())));
                         }
                     };
                 }
-                instance.status = Instance::get_status(&instance.container_statuses);
+                instance.status = Instance::get_status(&instance.containers);
             }
 
-            info!("Successfully listed instances");
             Ok(Json(instances.values().cloned().collect()))
         },
         Err(e) => {
-            error!("Error listing instances: {:?}", e);
+            error!("Error listing instances: {}", e);
             Err(Custom(Status::InternalServerError, e.to_string()))
         },
     }
 }
+
 
 #[post("/instances/create", data = "<env_vars>")]
 pub async fn create_instance(

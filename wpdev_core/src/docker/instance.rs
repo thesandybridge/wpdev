@@ -3,21 +3,20 @@ use std::path::PathBuf;
 use tokio::fs;
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, Error as AnyhowError};
-use log::info;
+use log::{info, error};
 use shiplift::{Docker, Error as DockerError};
 use shiplift::builder::ContainerOptions;
 use shiplift::builder::ContainerListOptions;
 use shiplift::rep::Container;
 
 use crate::utils;
-use crate::config;
+use crate::config::{self, read_or_create_config};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Instance {
-    pub container_ids: Vec<String>,
     pub uuid: String,
     pub status: crate::InstanceStatus,
-    pub container_statuses: HashMap<String, crate::ContainerStatus>,
+    pub containers: HashMap<String, InstanceContainer>,
     pub nginx_port: u32,
     pub adminer_port: u32,
     pub wordpress_data: Option<InstanceData>,
@@ -83,6 +82,9 @@ impl InstanceContainer {
                 let status = match container_info.state.status.as_str() {
                     "running" => crate::ContainerStatus::Running,
                     "exited" => crate::ContainerStatus::Stopped,
+                    "paused" => crate::ContainerStatus::Paused,
+                    "dead" => crate::ContainerStatus::Dead,
+                    "restarting" => crate::ContainerStatus::Restarting,
                     _ => crate::ContainerStatus::Unknown,
                 };
                 Ok(Some(status))
@@ -96,27 +98,126 @@ impl InstanceContainer {
     }
 }
 
+pub async fn configure_wordpress_container(
+    instance_label: &str,
+    instance_path: &PathBuf,
+    labels: &HashMap<String, String>,
+    env_vars: &crate::EnvVars
+) -> Result<ContainerOptions> {
+
+    let wordpress_config_dir = instance_path.join("wordpress");
+    let wordpress_path = utils::create_path(&wordpress_config_dir).await?;
+    let wordpress_labels = utils::create_labels(crate::ContainerImage::Wordpress, labels.clone());
+    let wordpress_labels_view: HashMap<_, _> = wordpress_labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
+        .env(env_vars.wordpress.clone())
+        .labels(&wordpress_labels_view)
+        .user("1000:1000")
+        .name(&format!("{}-{}", instance_label, crate::ContainerImage::Wordpress.to_string()))
+        .volumes(vec![
+                 &format!("{}:/var/www/html/", wordpress_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?),
+        ])
+        .build();
+    Ok(wordpress_options)
+}
+
+pub async fn configure_mysql_container(
+    instance_label: &str,
+    instance_path: &PathBuf,
+    labels: &HashMap<String, String>,
+    env_vars: &crate::EnvVars
+) -> Result<ContainerOptions> {
+
+    let mysql_config_dir = instance_path.join("mysql");
+    let mysql_socket_path = utils::create_path(&mysql_config_dir).await?;
+    let mysql_labels = utils::create_labels(crate::ContainerImage::MySQL, labels.clone());
+    let mysql_labels_view: HashMap<_, _> = mysql_labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
+        .env(env_vars.mysql.clone())
+        .labels(&mysql_labels_view)
+        .user("1000:1000")
+        .name(&format!("{}-{}", instance_label, crate::ContainerImage::MySQL.to_string()))
+        .volumes(vec![
+                 &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)
+        ])
+        .build();
+    Ok(mysql_options)
+}
+
+pub async fn configure_nginx_container(
+    instance_path: &PathBuf,
+    instance_label: &str,
+    labels: &HashMap<String, String>,
+    nginx_port: u32,
+) -> Result<ContainerOptions> {
+    let nginx_config_path = config::generate_nginx_config(
+            instance_label,
+            nginx_port,
+            &format!("{}-{}", &instance_label, crate::ContainerImage::Adminer.to_string()),
+            &format!("{}-{}", &instance_label, crate::ContainerImage::Wordpress.to_string()),
+            instance_path,
+            ).await?;
+    let nginx_labels = utils::create_labels(crate::ContainerImage::Nginx, labels.clone());
+    let nginx_labels_view: HashMap<_, _> = nginx_labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
+        .labels(&nginx_labels_view)
+        .name(&format!("{}-{}", instance_label, crate::ContainerImage::Nginx.to_string()))
+        .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)])
+        .expose(nginx_port, "tcp", nginx_port)
+        .build();
+    Ok(nginx_options)
+}
+
+pub async fn configure_adminer_container(
+    instance_label: &str,
+    labels: &HashMap<String, String>,
+    env_vars: &crate::EnvVars,
+    adminer_port: u32,
+) -> Result<ContainerOptions> {
+
+    let adminer_labels = utils::create_labels(crate::ContainerImage::Adminer, labels.clone());
+    let adminer_labels_view: HashMap<_, _> = adminer_labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
+        .network_mode(crate::NETWORK_NAME)
+        .env(env_vars.adminer.clone())
+        .labels(&adminer_labels_view)
+        .name(&format!("{}-{}", instance_label, crate::ContainerImage::Adminer.to_string()))
+        .expose(8080, "tcp", adminer_port)
+        .build();
+    Ok(adminer_options)
+}
+
 impl Instance {
     pub async fn default(
         instance_label: &str,
         labels: &HashMap<String, String>
-        ) -> Result<Self> {
+        ) -> Result<Self, AnyhowError> {
         let config = config::read_or_create_config().await?;
         let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
         let instance_dir = home_dir.join(format!("{}/{}/instance.toml", &config.custom_root, instance_label));
-        let contents = fs::read_to_string(&instance_dir).await?;
-        let instance_data: InstanceData = toml::from_str(&contents)?;
 
-        let nginx_port = utils::parse_port(labels.get("nginx_port"));
-        let adminer_port = utils::parse_port(labels.get("adminer_port"));
+        // Ensure the file exists
+        if !instance_dir.exists() {
+            return Err(AnyhowError::msg(format!("Instance file not found at {:?}", instance_dir)));
+        }
+
+        let contents = fs::read_to_string(&instance_dir).await?;
+        let instance_data: InstanceData = toml::from_str(&contents)
+            .map_err(|err| AnyhowError::msg(format!("Error parsing TOML: {}", err)))?;
+
+        let nginx_port = utils::parse_port(labels.get("nginx_port"))?;
+        let adminer_port = utils::parse_port(labels.get("adminer_port"))?;
+
         let instance = Self {
-            container_ids: Vec::new(),
             uuid: instance_label.to_string(),
             status: crate::InstanceStatus::default(),
-            container_statuses: HashMap::new(),
+            containers: HashMap::new(),
             nginx_port,
             adminer_port,
-            wordpress_data: instance_data.into(),
+            wordpress_data: Some(instance_data),
         };
 
         Ok(instance)
@@ -185,62 +286,41 @@ impl Instance {
         let instance_label_str = instance_label.to_string();
         let nginx_port_str = nginx_port.to_string();
         let adminer_port_str = adminer_port.to_string();
-        labels.insert("instance", instance_label_str.as_str());
-        labels.insert("nginx_port", nginx_port_str.as_str());
-        labels.insert("adminer_port", adminer_port_str.as_str());
+        labels.insert("instance".to_string(), instance_label_str);
+        labels.insert("nginx_port".to_string(), nginx_port_str);
+        labels.insert("adminer_port".to_string(), adminer_port_str);
 
-        let mysql_config_dir = home_dir.join(format!("{}/{}/mysql", &config.custom_root, instance_label));
-        let mysql_socket_path = utils::create_path(&mysql_config_dir).await?;
 
-        let mysql_options = ContainerOptions::builder(crate::MYSQL_IMAGE)
-            .network_mode(crate::NETWORK_NAME)
-            .env(&env_vars.mysql)
-            .labels(&labels)
-            .user("1000:1000")
-            .name(&format!("{}-{}", &instance_label, crate::ContainerImage::MySQL.to_string()))
-            .volumes(vec![
-                     &format!("{}:/var/run/mysqld", mysql_socket_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)
-            ])
-            .build();
 
-        let instance_path = home_dir.join(PathBuf::from(format!("{}/{}/app", &config.custom_root, instance_label)));
-        let wordpress_path = utils::create_path(&instance_path).await?;
+        let instance_path = home_dir.join(PathBuf::from(format!("{}/{}", &config.custom_root, instance_label)));
 
-        let nginx_config_path = config::generate_nginx_config(
-            &config,
+        let mysql_options = configure_mysql_container(
             instance_label,
-            nginx_port,
-            &format!("{}-{}", &instance_label, crate::ContainerImage::Adminer.to_string()),
-            &format!("{}-{}", &instance_label, crate::ContainerImage::Wordpress.to_string()),
-            &home_dir,
+            &instance_path,
+            &labels,
+            &env_vars,
             ).await?;
 
-        let wordpress_options = ContainerOptions::builder(crate::WORDPRESS_IMAGE)
-            .network_mode(crate::NETWORK_NAME)
-            .env(&env_vars.wordpress)
-            .labels(&labels)
-            .user("1000:1000")
-            .name(&format!("{}-{}", &instance_label, crate::ContainerImage::Wordpress.to_string()))
-            .volumes(vec![
-                     &format!("{}:/var/www/html/", wordpress_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?),
-            ])
-            .build();
+        let wordpress_options = configure_wordpress_container(
+            instance_label,
+            &instance_path,
+            &labels,
+            &env_vars,
+            ).await?;
 
-        let nginx_options = ContainerOptions::builder(crate::NGINX_IMAGE)
-            .network_mode(crate::NETWORK_NAME)
-            .labels(&labels)
-            .name(&format!("{}-{}", instance_label, crate::ContainerImage::Nginx.to_string()))
-            .volumes(vec![&format!("{}:/etc/nginx/conf.d/default.conf", nginx_config_path.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?)])
-            .expose(nginx_port, "tcp", nginx_port)
-            .build();
+        let nginx_options = configure_nginx_container(
+            &instance_path,
+            instance_label,
+            &labels,
+            nginx_port,
+            ).await?;
 
-        let adminer_options = ContainerOptions::builder(crate::ADMINER_IMAGE)
-            .network_mode(crate::NETWORK_NAME)
-            .env(&env_vars.adminer)
-            .labels(&labels)
-            .name(&format!("{}-{}", instance_label, crate::ContainerImage::Adminer.to_string()))
-            .expose(8080, "tcp", adminer_port)
-            .build();
+        let adminer_options = configure_adminer_container(
+            instance_label,
+            &labels,
+            &env_vars,
+            adminer_port,
+            ).await?;
 
         let wordpress_data = Self::parse(
             &env_vars,
@@ -252,10 +332,9 @@ impl Instance {
             ).await?;
 
         let mut instance = Instance {
-            container_ids: Vec::new(),
             uuid: instance_label.to_string(),
             status: crate::InstanceStatus::default(),
-            container_statuses: HashMap::new(),
+            containers: HashMap::new(),
             nginx_port,
             adminer_port,
             wordpress_data: Some(wordpress_data),
@@ -276,11 +355,22 @@ impl Instance {
 
         for (options, container_type) in containers_to_create {
             let (container_id, container_status) = InstanceContainer::new(docker, options, container_type, &mut container_ids).await?;
-            instance.container_statuses.insert(container_id, container_status);
+            let container = InstanceContainer {
+                container_id: container_id.clone(),
+                container_status,
+                container_image: match container_type {
+                    "MySQL" => crate::ContainerImage::MySQL,
+                    "Wordpress" => crate::ContainerImage::Wordpress,
+                    "Nginx" => crate::ContainerImage::Nginx,
+                    "Adminer" => crate::ContainerImage::Adminer,
+                    _ => crate::ContainerImage::Unknown,
+                }
+            };
+            instance.containers.insert(container_id, container);
         }
 
         // Determine overall instance status based on container statuses
-        instance.status = Self::get_status(&instance.container_statuses);
+        instance.status = Self::get_status(&instance.containers);
 
         Ok(instance)
 
@@ -293,6 +383,8 @@ impl Instance {
         ) -> Result<HashMap<String, Instance>, AnyhowError> {
         let mut instances: HashMap<String, Instance> = HashMap::new();
 
+        info!("Starting to list instances");
+
         for container in containers {
             match docker.containers().get(&container.id).inspect().await {
                 Ok(details) => {
@@ -300,23 +392,42 @@ impl Instance {
                         if let Some(labels) = &details.config.labels {
                             if let Some(instance_label) = labels.get("instance") {
                                 let instance = instances.entry(instance_label.to_string())
-                                    .or_insert(Instance::default(instance_label, labels).await?);
+                                    .or_insert(Instance::default(instance_label, labels).await.unwrap());
 
-                                instance.container_ids.push(container.id.clone());
+                                let container_image = match labels.get("image") {
+                                    Some(image) => crate::ContainerImage::from_string(image).unwrap_or(crate::ContainerImage::Unknown),
+                                    None => crate::ContainerImage::Unknown,
+                                };
+
+                                let container_status = match container.state.as_str() {
+                                    "running" => crate::ContainerStatus::Running,
+                                    "exited" => crate::ContainerStatus::Stopped,
+                                    "paused" => crate::ContainerStatus::Paused,
+                                    "dead" => crate::ContainerStatus::Dead,
+                                    "restarting" => crate::ContainerStatus::Restarting,
+                                    _ => crate::ContainerStatus::Unknown,
+                                };
+
+                                instance.containers.insert(container.id.clone(), InstanceContainer {
+                                    container_id: container.id.clone(),
+                                    container_image,
+                                    container_status,
+                                });
 
                             }
                         }
                     }
                 },
                 Err(e) => {
-                    // Log the error or handle it appropriately
-                    eprintln!("Error inspecting container {}: {}", container.id, e);
+                    error!("Error inspecting container {}: {}", container.id, e);
                 }
             }
         }
+        info!("Successfully listed instances");
 
         Ok(instances)
     }
+
 
     pub async fn list_all(
         docker: &Docker,
@@ -343,10 +454,10 @@ impl Instance {
     }
 
     pub fn get_status(
-        container_statuses: &HashMap<String, crate::ContainerStatus>
+        containers: &HashMap<String, InstanceContainer>
         ) -> crate::InstanceStatus {
-        let all_running = container_statuses.values().all(|status| *status == crate::ContainerStatus::Running);
-        let any_running = container_statuses.values().any(|status| *status == crate::ContainerStatus::Running);
+        let all_running = containers.values().all(|container| container.container_status == crate::ContainerStatus::Running);
+        let any_running = containers.values().any(|container| container.container_status == crate::ContainerStatus::Running);
 
         match (all_running, any_running) {
             (true, _) => crate::InstanceStatus::Running,
@@ -362,15 +473,15 @@ pub async fn handle_instance(
     instance_uuid: &str,
     operation: crate::ContainerOperation,
 ) -> Result<Instance, AnyhowError> {
-    let instances = Instance::list_all(docker, network_name).await?;
+    let mut instances = Instance::list_all(docker, network_name).await?;
 
-    if let Some(mut instance) = instances.get(instance_uuid).cloned() {
-        let mut container_statuses = HashMap::new();
-        for container_id in &instance.container_ids {
-            let current_container_status = InstanceContainer::get_status(docker, container_id).await?;
+    if let Some(mut instance) = instances.remove(instance_uuid) {
+        let mut containers_to_delete = Vec::new();
+        for (container_id, container) in instance.containers.iter_mut() {
+            let current_container_status = &container.container_status;
             match operation {
                 crate::ContainerOperation::Start => {
-                    if current_container_status != Some(crate::ContainerStatus::Running) {
+                    if *current_container_status != crate::ContainerStatus::Running {
                         docker.containers().get(container_id).start().await?;
                         info!("{} container successfully started", container_id);
                     } else {
@@ -378,7 +489,7 @@ pub async fn handle_instance(
                     }
                 }
                 crate::ContainerOperation::Stop => {
-                    if current_container_status == Some(crate::ContainerStatus::Running) {
+                    if *current_container_status == crate::ContainerStatus::Running {
                         docker.containers().get(container_id).stop(None).await?;
                         info!("{} container successfully stopped", container_id);
                     } else {
@@ -386,7 +497,7 @@ pub async fn handle_instance(
                     }
                 }
                 crate::ContainerOperation::Restart => {
-                    if current_container_status == Some(crate::ContainerStatus::Running) {
+                    if *current_container_status == crate::ContainerStatus::Running {
                         docker.containers().get(container_id).restart(None).await?;
                         info!("{} container successfully restarted", container_id);
                     } else {
@@ -394,14 +505,14 @@ pub async fn handle_instance(
                     }
                 }
                 crate::ContainerOperation::Delete => {
-                    if current_container_status == Some(crate::ContainerStatus::Running) {
+                    if *current_container_status == crate::ContainerStatus::Running {
                         // First, stop the container if it's running
                         docker.containers().get(container_id).stop(None).await?;
                         info!("{} container successfully stopped before deletion", container_id);
                     }
                     // Then delete the container
                     docker.containers().get(container_id).delete().await?;
-                    container_statuses.insert(container_id.clone(), crate::ContainerStatus::Deleted);
+                    containers_to_delete.push(container_id.clone());
                     info!("{} container successfully deleted", container_id);
                 }
                 crate::ContainerOperation::Inspect => {
@@ -411,19 +522,14 @@ pub async fn handle_instance(
             }
 
 
-            let updated_status = InstanceContainer::get_status(docker, container_id).await?;
-
-            if let Some(status) = updated_status {
-                container_statuses.insert(container_id.clone(), status);
-            } else {
-                container_statuses.insert(container_id.clone(), crate::ContainerStatus::NotFound);
-            }
         }
 
-        let instance_status = Instance::get_status(&container_statuses);
-        instance.status = instance_status;
-        instance.container_statuses = container_statuses;
+        // Remove the deleted containers after iterating
+        for container_id in containers_to_delete {
+            instance.containers.remove(&container_id);
+        }
 
+        instance.status = Instance::get_status(&instance.containers);
         // Return the modified instance
         Ok(instance)
 
@@ -476,18 +582,21 @@ pub async fn instance_handler(
 
 
 pub async fn purge_instances(instance: InstanceSelection) -> Result<(), AnyhowError> {
-    let config_dir = dirs::config_dir().ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
+    let config = read_or_create_config().await?;
+    let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
+    let config_dir = home_dir.join(&config.custom_root);
+
 
     match instance {
         InstanceSelection::All => {
-            let p = &config_dir.join(PathBuf::from("instances"));
+            let p = &config_dir;
             let path = p.to_str().ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
             fs::remove_dir_all(&path).await
                 .map_err(|err| AnyhowError::msg(format!("Error removing directory: {}: {}", path, err)))?;
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
-            let p = &config_dir.join(PathBuf::from("instances").join(&instance_uuid));
+            let p = &config_dir.join(&instance_uuid);
             let path = p.to_str().ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
             fs::remove_dir_all(&path).await
                 .map_err(|err| AnyhowError::msg(format!("Error removing directory: {}: {}", path, err)))?;
@@ -496,3 +605,6 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<(), AnyhowEr
     }
 
 }
+
+
+

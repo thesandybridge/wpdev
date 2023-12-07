@@ -21,13 +21,11 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     if config_path.exists() {
         let contents = fs::read_to_string(&config_path).await?;
         let config: crate::AppConfig = toml::from_str(&contents)?;
-        info!("Loaded config from {:?}", config_path);
         Ok(config)
     } else {
         let config = crate::AppConfig::default();
         let toml = toml::to_string(&config)?;
         fs::write(&config_path, toml).await?;
-        info!("Created config file at {:?}", config_path);
         Ok(config)
     }
 }
@@ -214,12 +212,11 @@ pub async fn initialize_env_vars(
 }
 
 pub async fn generate_nginx_config(
-    config: &crate::AppConfig,
     instance_label: &str,
     nginx_port: u32,
     adminer_name: &str,
     wordpress_name: &str,
-    home_dir: &PathBuf
+    instance_dir: &PathBuf,
 ) -> Result<PathBuf, AnyhowError> {
     let nginx_config = format!(
         r#"
@@ -255,9 +252,9 @@ server {{
 
     );
 
-    let nginx_config_dir = home_dir.join(format!("{}/{}/nginx", &config.custom_root, instance_label));
-    utils::create_path(&nginx_config_dir).await?;
-    let nginx_config_path = nginx_config_dir.join(format!("{}-nginx.conf", instance_label));
+    let instance_path = instance_dir.join("nginx");
+    utils::create_path(&instance_path).await?;
+    let nginx_config_path = instance_path.join(format!("{}-nginx.conf", instance_label));
     fs::write(&nginx_config_path, nginx_config).await?;
 
     Ok(nginx_config_path)
@@ -300,3 +297,4 @@ define('WP_DEBUG', false);
 
     Ok(())
 }
+

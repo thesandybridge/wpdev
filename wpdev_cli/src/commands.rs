@@ -23,20 +23,20 @@ pub async fn list_instances() -> Result<Json, AnyhowError> {
     match Instance::list_all(&docker, wpdev_core::NETWORK_NAME).await {
         Ok(mut instances) => {
             for (_, instance) in instances.iter_mut() {
-                for container_id in &instance.container_ids {
-                    match InstanceContainer::get_status(&docker, container_id).await {
+                for container in instance.containers.values_mut() {
+                    match InstanceContainer::get_status(&docker, &container.container_id).await {
                         Ok(Some(status)) => {
-                            instance.container_statuses.insert(container_id.clone(), status);
+                            container.container_status = status;
                         },
                         Ok(None) => {
-                            instance.container_statuses.insert(container_id.clone(), ContainerStatus::NotFound);
+                            container.container_status = ContainerStatus::NotFound;
                         },
                         Err(err) => {
-                            return Err(AnyhowError::msg(format!("Error fetching status for container {} : {:?}", container_id, err)))
+                            return Err(AnyhowError::msg(format!("Error fetching status for container {} : {:?}", container.container_id, err)))
                         }
                     };
                 }
-                instance.status = Instance::get_status(&instance.container_statuses);
+                instance.status = Instance::get_status(&instance.containers);
             }
 
             info!("Successfully listed instances");
