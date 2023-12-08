@@ -6,6 +6,12 @@ import {useEffect, useState, useRef, useMemo} from 'react'
 import { w3cwebsocket as WebSocket } from 'websocket'
 import {InstanceStatus} from './types/globalTypes'
 
+import {
+    faHome,
+    faGear
+} from '@fortawesome/free-solid-svg-icons'
+import FaIcon from './components/FaIcon'
+
 export default function Home() {
     const [instances, setInstances] = useState<Instance[]>([])
     const api = 'http://127.0.0.1:8000/api/'
@@ -102,13 +108,13 @@ export default function Home() {
         <aside className={styles.sidebar}>
             <nav>
                 <ul>
-                    <li>Home</li>
-                    <li>Settings</li>
+                    <li><FaIcon icon={faHome} /></li>
+                    <li><FaIcon icon={faGear} /></li>
                 </ul>
             </nav>
         </aside>
         <main className={styles.main}>
-            <header>
+            <header className="">
                 <h1>Instances</h1>
                 <nav role="menu" className={styles.controls}>
                     <button onClick={() => handleButtonClick('create')}>Create Instance</button>
@@ -119,7 +125,7 @@ export default function Home() {
                 </nav>
             </header>
             <div className="instances">
-                {sortedInstances && sortedInstances.map((instance, i) => (
+                {sortedInstances && sortedInstances.length > 0 ? sortedInstances.map((instance, i) => (
                     <Instance
                         key={i}
                         data={instance}
@@ -127,7 +133,7 @@ export default function Home() {
                         fetchInstances={requestInspect}
                         isAllLoading={isLoading}
                     />
-                ))}
+                )) : <p>No instances found</p>}
             </div>
         </main>
     </div>
