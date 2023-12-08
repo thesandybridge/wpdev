@@ -8,9 +8,10 @@ import {InstanceStatus} from './types/globalTypes'
 
 export default function Home() {
     const [instances, setInstances] = useState<Instance[]>([])
-    const api = 'http://127.0.0.1:8000/api/instances/'
+    const api = 'http://127.0.0.1:8000/api/'
     const wsUrl = 'ws://127.0.0.1:8000/api/instances/ws'
-    const ws = useRef<WebSocket | null>(null);
+    const ws = useRef<WebSocket | null>(null)
+    const [isLoading, setIsLoading] = useState(false);
 
     const getStatusOrder = (status: InstanceStatus) => {
         const order = [
@@ -32,8 +33,9 @@ export default function Home() {
     }, [instances]);
 
     const handleButtonClick = async (action: string, payload: any) => {
+        setIsLoading(true);
         try {
-            const response = await fetch(`${api}${action}`, {
+            const response = await fetch(`${api}instances/${action}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -49,6 +51,8 @@ export default function Home() {
 
         } catch (error) {
             console.error(error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -121,6 +125,7 @@ export default function Home() {
                         data={instance}
                         api={api}
                         fetchInstances={requestInspect}
+                        isAllLoading={isLoading}
                     />
                 ))}
             </div>

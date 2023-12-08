@@ -7,6 +7,7 @@ import Container from './Container'
 interface Props {
     data: Instance
     api: string
+    isAllLoading: boolean
     fetchInstances: () => void
 }
 
@@ -19,7 +20,7 @@ interface LoadingState {
 }
 
 export default function Instance(props: Props) {
-    const { data, api, fetchInstances} = props
+    const { data, api, fetchInstances, isAllLoading} = props
     const wordpress_path = `${data.wordpress_data.site_url}`
     const adminer_path = `${data.wordpress_data.adminer_url}/?server=${data.uuid}-mysql&username=wordpress&db=wordpress`
 
@@ -32,7 +33,7 @@ export default function Instance(props: Props) {
         setIsLoading(prevLoading => ({ ...prevLoading, [`${data.uuid}`]: true }))
         setIsDisabled(true)
         try {
-            const response = await fetch(`${api}${data.uuid}/${action}`, {
+            const response = await fetch(`${api}/instances/${data.uuid}/${action}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -59,7 +60,7 @@ export default function Instance(props: Props) {
     const isInstanceLoading = () => isLoading[data.uuid]
 
     return (
-        <div id={data.uuid} className={`instance${isInstanceLoading() ? ' isLoading' : ''}`}>
+        <div id={data.uuid} className={`instance${isInstanceLoading() || isAllLoading ? ' isLoading' : ''}`}>
             <header>
                 <div className={`status_container ${data.status.toLowerCase()}`} title={data.status}/>
                 <h4>Instance: {data.uuid}</h4>

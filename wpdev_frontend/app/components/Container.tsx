@@ -3,13 +3,13 @@ import Icon from '../icons/Icon';
 
 const status_color = {
     'Running': '#87e084',
-    'Restarting': '#ececec',
-    'Stopped': '#ffff00',
+    'Restarting': '#c18145',
+    'Stopped': '#ececec',
     'Exited': '#e08484',
-    'Dead': '#e08484',
+    'Dead': '#a5181b',
     'Unknown': '#c784e0',
     'Paused': '#ececec',
-    'NotFound': '#e08484',
+    'NotFound': '#18a574',
 }
 
 interface Props {
