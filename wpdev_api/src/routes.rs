@@ -6,61 +6,12 @@ use rocket::response::status::Custom;
 use serde_json;
 use shiplift::Docker;
 use uuid::Uuid;
-use log::{info, error};
+use log::error;
 
 /// Internal dependencies
-use wpdev_core::docker::instance::{
-    purge_instances,
-    instance_handler,
-    Instance,
-    InstanceContainer,
-    InstanceSelection,
-};
-
-use wpdev_core:: {
-    ContainerStatus,
-    ContainerEnvVars,
-    ContainerOperation,
-};
-
-/// Route handlers
-
-#[get("/instances")]
-pub async fn list_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
-    let docker = Docker::new();
-
-    match Instance::list_all(&docker, wpdev_core::NETWORK_NAME).await {
-        Ok(mut instances) => {
-            for (instance_id, instance) in instances.iter_mut() {
-                info!("Inspecting instance with ID: {}", instance_id);
-                for (container_id, container) in instance.containers.iter_mut() {
-                    info!("Fetching status for container ID: {}", container_id);
-                    match InstanceContainer::get_status(&docker, container_id).await {
-                        Ok(Some(status)) => {
-                            info!("Status for container ID {}: {:?}", container_id, status);
-                            container.container_status = status;
-                        },
-                        Ok(None) => {
-                            warn!("Container ID {} not found. Setting status to NotFound.", container_id);
-                            container.container_status = ContainerStatus::NotFound;
-                        },
-                        Err(err) => {
-                            error!("Error fetching status for container ID {}: {}", container_id, err);
-                            return Err(Custom(Status::InternalServerError, format!("Error fetching status for container {}: {}", container_id, err.to_string())));
-                        }
-                    };
-                }
-                instance.status = Instance::get_status(&instance.containers);
-            }
-
-            Ok(Json(instances.values().cloned().collect()))
-        },
-        Err(e) => {
-            error!("Error listing instances: {}", e);
-            Err(Custom(Status::InternalServerError, e.to_string()))
-        },
-    }
-}
+use wpdev_core::docker::instance::Instance;
+use wpdev_core::docker::container::InstanceContainer;
+use wpdev_core::ContainerEnvVars;
 
 
 #[post("/instances/create", data = "<env_vars>")]
@@ -91,62 +42,68 @@ Result<Json<Instance>, Custom<String>>
     }
 }
 
-#[post("/instances/<instance_uuid>/start")]
-pub async fn start_instance(instance_uuid: &str) -> Result<Json<Vec<Instance>>, Custom<String>> {
+#[get("/instances/<instance_uuid>/inspect")]
+pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<Instance>, Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
+    match Instance::inspect(
         &docker,
         wpdev_core::NETWORK_NAME,
-        InstanceSelection::One(instance_uuid.to_string()),
-        ContainerOperation::Start,
+        instance_uuid
     ).await {
         Ok(instance) => {
             Ok(Json(instance))
         },
-        Err(e) => Err(Custom(Status::InternalServerError, e.to_string()))
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[get("/instances/inspect_all")]
+pub async fn inspect_all_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
+    let docker = Docker::new();
+    match Instance::inspect_all(
+        &docker,
+        wpdev_core::NETWORK_NAME,
+    ).await {
+        Ok(instance) => {
+            Ok(Json(instance))
+        },
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[post("/instances/<instance_uuid>/start")]
+pub async fn start_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match Instance::start(
+        &docker,
+        wpdev_core::NETWORK_NAME,
+        instance_uuid
+    ).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
 #[post("/instances/<instance_uuid>/stop")]
-pub async fn stop_instance(instance_uuid: &str) -> Result<Json<Vec<Instance>>, Custom<String>> {
+pub async fn stop_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
+    match Instance::stop(
         &docker,
         wpdev_core::NETWORK_NAME,
-        InstanceSelection::One(instance_uuid.to_string()),
-        ContainerOperation::Stop,
+        instance_uuid
     ).await {
-        Ok(instance) => {
-            Ok(Json(instance))
-        },
+        Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
 #[post("/instances/<instance_uuid>/restart")]
-pub async fn restart_instance(instance_uuid: &str) -> Result<Json<Vec<Instance>>, Custom<String>> {
+pub async fn restart_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
+    match Instance::restart(
         &docker,
         wpdev_core::NETWORK_NAME,
-        InstanceSelection::One(instance_uuid.to_string()),
-        ContainerOperation::Restart,
-    ).await {
-        Ok(instance) => {
-            Ok(Json(instance))
-        },
-        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
-    }
-}
-
-#[post("/instances/<instance_uuid>/delete")]
-pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
-    let docker = Docker::new();
-    match instance_handler(
-        &docker,
-        wpdev_core::NETWORK_NAME,
-        InstanceSelection::One(instance_uuid.to_string()),
-        ContainerOperation::Delete,
+        instance_uuid
     ).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
@@ -154,81 +111,118 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> 
 }
 
 #[post("/instances/start_all")]
-pub async fn start_all_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
+pub async fn start_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
+    match Instance::start_all(
         &docker,
         wpdev_core::NETWORK_NAME,
-        InstanceSelection::All,
-        ContainerOperation::Start,
     ).await {
-        Ok(statuses) => Ok(Json(statuses)),
-        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
-    }
-}
-
-#[post("/instances/restart_all")]
-pub async fn restart_all_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
-    let docker = Docker::new();
-    match instance_handler(
-        &docker,
-        wpdev_core::NETWORK_NAME,
-        InstanceSelection::All,
-        ContainerOperation::Restart,
-    ).await {
-        Ok(statuses) => Ok(Json(statuses)),
+        Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
 #[post("/instances/stop_all")]
-pub async fn stop_all_instances() -> Result<Json<Vec<Instance>>, Custom<String>> {
+pub async fn stop_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
+    match Instance::stop_all(
         &docker,
         wpdev_core::NETWORK_NAME,
-        InstanceSelection::All,
-        ContainerOperation::Stop,
     ).await {
-        Ok(statuses) => Ok(Json(statuses)),
+        Ok(_) => Ok(()),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[post("/instances/restart_all")]
+pub async fn restart_all_instances() -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match Instance::restart_all(
+        &docker,
+        wpdev_core::NETWORK_NAME,
+    ).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[post("/instances/<instance_uuid>/delete")]
+pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match Instance::delete(
+        &docker,
+        wpdev_core::NETWORK_NAME,
+        instance_uuid
+    ).await {
+        Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
 #[post("/instances/purge")]
-pub async fn delete_all_instance() -> Result<(), Custom<String>> {
+pub async fn delet_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
+    match Instance::delete_all(
         &docker,
         wpdev_core::NETWORK_NAME,
-        InstanceSelection::All,
-        ContainerOperation::Delete,
     ).await {
-        Ok(_) => Ok(()),
-        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
-    }?;
-
-    match purge_instances(InstanceSelection::All).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
-#[post("/instances/<instance_uuid>/inspect")]
-pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<Vec<Instance>>, Custom<String>> {
+
+#[get("/containers/<container_id>/inspect")]
+pub async fn inspect_container(container_id: &str) -> Result<Json<InstanceContainer>, Custom<String>> {
     let docker = Docker::new();
-    match instance_handler(
-        &docker,
-        wpdev_core::NETWORK_NAME,
-        InstanceSelection::One(instance_uuid.to_string()),
-        ContainerOperation::Inspect,
-    ).await {
-        Ok(instance) => {
-            Ok(Json(instance))
+    match InstanceContainer::inspect(&docker, container_id).await {
+        Ok(container) => {
+            Ok(Json(container))
         },
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
+}
 
+#[post("/containers/<container_id>/start")]
+pub async fn start_container(container_id: &str) -> Result<Json<InstanceContainer>, Custom<String>> {
+    let docker = Docker::new();
+    match InstanceContainer::start(&docker, container_id).await {
+        Ok(container) => {
+            Ok(Json(container))
+        },
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[post("/containers/<container_id>/stop")]
+pub async fn stop_container(container_id: &str) -> Result<Json<InstanceContainer>, Custom<String>> {
+    let docker = Docker::new();
+    match InstanceContainer::stop(&docker, container_id).await {
+        Ok(container) => {
+            Ok(Json(container))
+        },
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[post("/containers/<container_id>/restart")]
+pub async fn restart_container(container_id: &str) -> Result<Json<InstanceContainer>, Custom<String>> {
+    let docker = Docker::new();
+    match InstanceContainer::restart(&docker, container_id).await {
+        Ok(container) => {
+            Ok(Json(container))
+        },
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
+}
+
+#[post("/containers/<container_id>/delete")]
+pub async fn delete_container(container_id: &str) -> Result<(), Custom<String>> {
+    let docker = Docker::new();
+    match InstanceContainer::delete(&docker, container_id).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
+    }
 }
 
 #[get("/instances/ws")]
@@ -241,11 +235,9 @@ pub fn inspect_instance_ws(ws: ws::WebSocket) -> ws::Stream!['static] {
                 Ok(ws::Message::Text(text)) => {
                     if text == "request_inspect" {
                         // Process the inspection request
-                        match instance_handler(
+                        match Instance::inspect_all(
                             &docker,
                             wpdev_core::NETWORK_NAME,
-                            InstanceSelection::All,
-                            ContainerOperation::Inspect,
                         ).await {
                             Ok(instances) => {
                                 let response = serde_json::to_string(&instances).unwrap();
@@ -271,17 +263,22 @@ pub fn inspect_instance_ws(ws: ws::WebSocket) -> ws::Stream!['static] {
 
 pub fn routes() -> Vec<rocket::Route> {
     routes![
-        list_instances,
         create_instance,
         delete_instance,
+        delet_all_instances,
+        inspect_instance,
+        inspect_all_instances,
         start_instance,
-        restart_instance,
         stop_instance,
-        delete_all_instance,
+        restart_instance,
+        start_all_instances,
         stop_all_instances,
         restart_all_instances,
-        start_all_instances,
-        inspect_instance,
+        inspect_container,
+        start_container,
+        stop_container,
+        restart_container,
+        delete_container,
         inspect_instance_ws,
     ]
 }

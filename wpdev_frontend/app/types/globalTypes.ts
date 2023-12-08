@@ -1,10 +1,9 @@
 type uuid = string;
 
 export interface Instance {
-    container_ids: string[];
     uuid: uuid;
     status: InstanceStatus;
-    container_statuses: { [key: uuid]: string };
+    containers: Container[];
     nginx_port: number;
     adminer_port: number;
     wordpress_data: WordPressData;
@@ -13,6 +12,20 @@ export interface Instance {
 export interface WordPressData {
     site_url: string;
     adminer_url: string;
+}
+
+export interface Container {
+    container_id: uuid;
+    container_image: ContainerImage;
+    container_status: ContainerStatus;
+}
+
+export enum ContainerImage {
+    Adminer = "adminer",
+    Wordpress = "wordpress",
+    Nginx = "nginx",
+    MySQL = "mysql",
+    Unknown = "unknown",
 }
 
 export enum ContainerStatus {

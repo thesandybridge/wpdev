@@ -81,14 +81,6 @@ async fn main() -> Result<(), AnyhowError> {
     match matches.subcommand() {
         Some(("instances", sites_matches)) => {
             match sites_matches.subcommand() {
-                Some(("list", _)) => {
-                    let instance = utils::with_spinner(
-                        commands::list_instances(),
-                        "Listing instances"
-                        ).await?;
-                    println!("\n");
-                    utils::print_instances_table(&instance);
-                },
                 Some(("create", create_matches)) => {
                     let options = create_matches.get_one("OPTIONS");
                     let instance = utils::with_spinner(
@@ -162,6 +154,13 @@ async fn main() -> Result<(), AnyhowError> {
                     let instance = utils::with_spinner(
                         commands::inspect_instance(id),
                         "Getting instance status"
+                        ).await?;
+                    println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                },
+                Some(("list", _)) => {
+                    let instance = utils::with_spinner(
+                        commands::inspect_all_instances(),
+                        "Getting instance statuses"
                         ).await?;
                     println!("\n{}", serde_json::to_string_pretty(&instance)?);
                 },

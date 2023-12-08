@@ -3,7 +3,7 @@
 import styles from './page.module.css'
 import Instance from './components/Instance'
 import {useEffect, useState, useRef, useMemo} from 'react'
-import { w3cwebsocket as WebSocket } from 'websocket';
+import { w3cwebsocket as WebSocket } from 'websocket'
 import {InstanceStatus} from './types/globalTypes'
 
 export default function Home() {
@@ -106,13 +106,13 @@ export default function Home() {
         <main className={styles.main}>
             <header>
                 <h1>Instances</h1>
-                <div className={styles.controls}>
+                <nav role="menu" className={styles.controls}>
                     <button onClick={() => handleButtonClick('create')}>Create Instance</button>
                     <button onClick={() => handleButtonClick('start_all')}>Start All</button>
                     <button onClick={() => handleButtonClick('stop_all')}>Stop All</button>
                     <button onClick={() => handleButtonClick('restart_all')}>Restart All</button>
                     <button onClick={() => handleButtonClick('purge')}>Purge All</button>
-                </div>
+                </nav>
             </header>
             <div className="instances">
                 {sortedInstances && sortedInstances.map((instance, i) => (
