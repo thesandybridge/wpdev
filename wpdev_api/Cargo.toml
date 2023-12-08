@@ -3,8 +3,10 @@ name = "wpdev_api"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies.wpdev_core]
+path = "../wpdev_core"
+
 [dependencies]
-wpdev_core = { path = "../wpdev_core" }
 rocket = {version = "0.5.0", features = ["json"]}
 ws = { package = "rocket_ws", version = "0.1.0" }
 shiplift = "0.7.0"
