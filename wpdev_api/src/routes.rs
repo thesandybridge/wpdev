@@ -160,7 +160,7 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> 
 }
 
 #[post("/instances/purge")]
-pub async fn delet_all_instances() -> Result<(), Custom<String>> {
+pub async fn delete_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::new();
     match Instance::delete_all(
         &docker,
@@ -265,7 +265,7 @@ pub fn routes() -> Vec<rocket::Route> {
     routes![
         create_instance,
         delete_instance,
-        delet_all_instances,
+        delete_all_instances,
         inspect_instance,
         inspect_all_instances,
         start_instance,
