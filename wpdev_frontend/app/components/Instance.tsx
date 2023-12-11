@@ -85,10 +85,10 @@ export default function Instance(props: Props) {
             {data.containers && (
                 <div className='instance_containers'>
                     {data.containers.map((container, i)=>
-                        <Container
-                            key={i}
-                            container={container}
-                        />
+                    <Container
+                        key={i}
+                        container={container}
+                    />
                     )}
                 </div>
             )}

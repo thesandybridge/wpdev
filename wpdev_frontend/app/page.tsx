@@ -103,39 +103,39 @@ export default function Home() {
         }
     };
 
-  return (
-    <div className={styles.grid}>
-        <aside className={styles.sidebar}>
-            <nav>
-                <ul>
-                    <li><FaIcon icon={faHome} /></li>
-                    <li><FaIcon icon={faGear} /></li>
-                </ul>
-            </nav>
-        </aside>
-        <main className={styles.main}>
-            <header className="">
-                <h1>Instances</h1>
-                <nav role="menu" className={styles.controls}>
-                    <button onClick={() => handleButtonClick('create')}>Create Instance</button>
-                    <button onClick={() => handleButtonClick('start_all')}>Start All</button>
-                    <button onClick={() => handleButtonClick('stop_all')}>Stop All</button>
-                    <button onClick={() => handleButtonClick('restart_all')}>Restart All</button>
-                    <button onClick={() => handleButtonClick('purge')}>Purge All</button>
+    return (
+        <div className={styles.grid}>
+            <aside className={styles.sidebar}>
+                <nav>
+                    <ul>
+                        <li><FaIcon icon={faHome} /></li>
+                        <li><FaIcon icon={faGear} /></li>
+                    </ul>
                 </nav>
-            </header>
-            <div className="instances">
-                {sortedInstances && sortedInstances.length > 0 ? sortedInstances.map((instance, i) => (
-                    <Instance
-                        key={i}
-                        data={instance}
-                        api={api}
-                        fetchInstances={requestInspect}
-                        isAllLoading={isLoading}
-                    />
-                )) : <p>No instances found</p>}
-            </div>
-        </main>
-    </div>
-  )
+            </aside>
+            <main className={styles.main}>
+                <header className="">
+                    <h1>Instances</h1>
+                    <nav role="menu" className={styles.controls}>
+                        <button onClick={() => handleButtonClick('create')}>Create Instance</button>
+                        <button onClick={() => handleButtonClick('start_all')}>Start All</button>
+                        <button onClick={() => handleButtonClick('stop_all')}>Stop All</button>
+                        <button onClick={() => handleButtonClick('restart_all')}>Restart All</button>
+                        <button onClick={() => handleButtonClick('purge')}>Purge All</button>
+                    </nav>
+                </header>
+                <div className="instances">
+                    {sortedInstances && sortedInstances.length > 0 ? sortedInstances.map((instance, i) => (
+                        <Instance
+                            key={i}
+                            data={instance}
+                            api={api}
+                            fetchInstances={requestInspect}
+                            isAllLoading={isLoading}
+                        />
+                    )) : <p>No instances found</p>}
+                </div>
+            </main>
+        </div>
+    )
 }
