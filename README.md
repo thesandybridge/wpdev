@@ -102,7 +102,7 @@ Contributions are welcome. Please read the [Contributing Guidelines](CONTRIBUTIN
 
 ## License 📄
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
 
 ## Support 🛟
 
