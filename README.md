@@ -23,7 +23,7 @@ wpdev an integrated solution for managing WordPress environments. It consists of
 1. Clone the repository and navigate to the frontend directory:
 
 ```bash
-git clone [repository-url]
+git clone https://github.com/thesandybridge/wpdev.git
 cd wpdev/wpdev_frontend
 ```
 
@@ -44,19 +44,19 @@ npm run dev
 1. Navigate to the backend directory:
 
 ```bash
-cd wpdev/wpdev_api
+cd wpdev
 ```
 
 2. Build the Rust project:
 
 ```bash
-cargo build
+cargo build -p wpdev_api
 ```
 
 3. Run the API server:
 
 ```bash
-cargo run
+cargo run -p wpdev_api
 ```
 
 ### CLI Tool
@@ -64,19 +64,19 @@ cargo run
 1. Navigate to the CLI tool directory:
 
 ```bash
-cd wpdev/wpdev_cli
+cd wpdev
 ```
 
 2. Build the CLI tool:
 
 ```bash
-cargo build --release
+cargo build -p wpdev_cli --release
 ```
 
 3. Link the binary for easy access:
 
 ```bash
-ln -s [path-to-binary] /usr/local/bin/wpdev
+ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 ```
 
 ## Usage
