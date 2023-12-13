@@ -1,14 +1,14 @@
-# wpdev
+# wpdev 🚀
 
 ## Overview
 
 wpdev an integrated solution for managing WordPress environments. It consists of three core components:
 
-1. Frontend WebApp Dashboard: A Next.js-based dashboard for a user-friendly interface to manage WordPress environments.
-2. Backend API: Developed using Rust with Rocket and Shiplift, this API handles the setup and management of WordPress, Nginx, Adminer, and MySQL Docker containers within an instance.
-3. CLI Tool: An alternative to the Frontend WebApp, providing command-line access to the same functionalities.
+1. 🖥️ Frontend WebApp Dashboard: A Next.js-based dashboard for a user-friendly interface to manage WordPress environments.
+2. 🔧 Backend API: Developed using Rust with Rocket and Shiplift, this API handles the setup and management of WordPress, Nginx, Adminer, and MySQL Docker containers within an instance.
+3. ⌨️ CLI Tool: An alternative to the Frontend WebApp, providing command-line access to the same functionalities.
 
-## Getting Started
+## Getting Started 🌟
 
 ### Prerequisites
 
@@ -16,7 +16,7 @@ wpdev an integrated solution for managing WordPress environments. It consists of
 - Rust (for Backend API)
 - Docker (for container management)
 
-## Installation
+## Installation 🛠️
 
 ### Frontend WebApp Dashboard
 
@@ -79,7 +79,7 @@ cargo build -p wpdev_cli --release
 ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 ```
 
-## Usage
+## Usage 💻
 
 ### Frontend WebApp
 
@@ -96,14 +96,14 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 - Run wpdev --help for a list of commands and usage instructions.
 - Perform similar operations as the WebApp through command-line instructions.
 
-## Contributing
+## Contributing 👥
 
 Contributions are welcome. Please read the [Contributing Guidelines](CONTRIBUTING.md) file for guidelines on how to contribute.
 
-## License
+## License 📄
 
 This project is licensed under the MIT License.
 
-## Support
+## Support 🛟
 
 For support, please open an issue in the GitHub repository or contact the maintainers.
