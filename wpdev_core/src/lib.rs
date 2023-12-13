@@ -1,10 +1,10 @@
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use shiplift::builder::ContainerOptions;
+use std::collections::HashMap;
 
 pub mod config;
-pub mod utils;
 pub mod docker;
+pub mod utils;
 
 pub const NETWORK_NAME: &str = "wp-network";
 pub const WORDPRESS_IMAGE: &str = "wordpress:latest";
@@ -19,9 +19,7 @@ pub struct ContainerEnvVars {
 
 impl Default for ContainerEnvVars {
     fn default() -> Self {
-        ContainerEnvVars {
-            wordpress: None,
-        }
+        ContainerEnvVars { wordpress: None }
     }
 }
 
@@ -59,7 +57,7 @@ pub enum ContainerImage {
     MySQL,
     Nginx,
     Wordpress,
-    Unknown
+    Unknown,
 }
 
 impl ContainerImage {
@@ -84,7 +82,6 @@ impl ContainerImage {
         }
     }
 }
-
 
 pub type ContainerInfo = (ContainerOptions, &'static str);
 

@@ -1,4 +1,5 @@
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
 use rocket::http::Method;
 use rocket_cors::{AllowedOrigins, Cors, CorsOptions};
 
@@ -11,7 +12,10 @@ fn cors() -> Cors {
 
     CorsOptions {
         allowed_origins,
-        allowed_methods: vec![Method::Get, Method::Post].into_iter().map(From::from).collect(),
+        allowed_methods: vec![Method::Get, Method::Post]
+            .into_iter()
+            .map(From::from)
+            .collect(),
         allowed_headers: rocket_cors::AllowedHeaders::all(),
         allow_credentials: true,
         ..Default::default()

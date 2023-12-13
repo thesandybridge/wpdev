@@ -1,13 +1,13 @@
-use shiplift::{Docker, PullOptions, ImageListOptions};
 use futures::stream::StreamExt;
-use std::collections::HashMap;
+use log::{error, info};
 use shiplift::NetworkCreateOptions;
-use log::{info, error};
+use shiplift::{Docker, ImageListOptions, PullOptions};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use dirs;
 
-use anyhow::{Result, Error as AnyhowError};
+use anyhow::{Error as AnyhowError, Result};
 use tokio::fs::{self};
 
 use crate::utils;
@@ -46,10 +46,12 @@ pub async fn image_exists(image_name: &str) -> bool {
     let options = ImageListOptions::default();
     let images = docker.images().list(&options).await.unwrap();
     images.iter().any(|image| {
-        image.repo_tags.iter().any(|tag| tag.contains(&image_name.to_string())) // Convert image_name to String
+        image
+            .repo_tags
+            .iter()
+            .any(|tag| tag.contains(&image_name.to_string())) // Convert image_name to String
     })
 }
-
 
 /// Pull a Docker image if it does not already exist locally.
 ///
@@ -132,7 +134,7 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
 /// * `network_name` - name of the network
 pub async fn create_network_if_not_exists(
     docker: &Docker,
-    network_name: &str
+    network_name: &str,
 ) -> Result<(), shiplift::Error> {
     let networks = docker.networks().list(&Default::default()).await?;
     if networks.iter().any(|network| network.name == network_name) {
@@ -156,7 +158,10 @@ pub async fn create_network_if_not_exists(
     }
 }
 
-fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<String, String>>) -> Vec<String> {
+fn merge_env_vars(
+    defaults: HashMap<String, String>,
+    overrides: &Option<HashMap<String, String>>,
+) -> Vec<String> {
     let mut env_vars = defaults;
 
     if let Some(overrides) = overrides {
@@ -165,33 +170,53 @@ fn merge_env_vars(defaults: HashMap<String, String>, overrides: &Option<HashMap<
         }
     }
 
-    env_vars.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect()
+    env_vars
+        .into_iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect()
 }
 
 pub async fn initialize_env_vars(
     instance_label: &str,
     user_env_vars: &crate::ContainerEnvVars,
 ) -> Result<crate::EnvVars, AnyhowError> {
-
     let default_adminer_vars = HashMap::from([
         ("ADMINER_DESIGN".to_string(), "nette".to_string()),
-        ("ADMINER_PLUGINS".to_string(), "tables-filter tinymce".to_string()),
+        (
+            "ADMINER_PLUGINS".to_string(),
+            "tables-filter tinymce".to_string(),
+        ),
         ("MYSQL_PORT".to_string(), "3306".to_string()),
-        ("ADMINER_DEFAULT_SERVER".to_string(), format!("{}-mysql", instance_label).to_string()),
-        ("ADMINER_DEFAULT_USERNAME".to_string(), "wordpress".to_string()),
-        ("ADMINER_DEFAULT_PASSWORD".to_string(), "password".to_string()),
-        ("ADMINER_DEFAULT_DATABASE".to_string(), "wordpress".to_string()),
+        (
+            "ADMINER_DEFAULT_SERVER".to_string(),
+            format!("{}-mysql", instance_label).to_string(),
+        ),
+        (
+            "ADMINER_DEFAULT_USERNAME".to_string(),
+            "wordpress".to_string(),
+        ),
+        (
+            "ADMINER_DEFAULT_PASSWORD".to_string(),
+            "password".to_string(),
+        ),
+        (
+            "ADMINER_DEFAULT_DATABASE".to_string(),
+            "wordpress".to_string(),
+        ),
     ]);
 
     let default_mysql_vars = HashMap::from([
-        ("MYSQL_ROOT_PASSWORD".to_string(),"password".to_string()),
-        ("MYSQL_DATABASE".to_string(),"wordpress".to_string()),
-        ("MYSQL_USER".to_string(),"wordpress".to_string()),
-        ("MYSQL_PASSWORD".to_string(),"password".to_string()),
+        ("MYSQL_ROOT_PASSWORD".to_string(), "password".to_string()),
+        ("MYSQL_DATABASE".to_string(), "wordpress".to_string()),
+        ("MYSQL_USER".to_string(), "wordpress".to_string()),
+        ("MYSQL_PASSWORD".to_string(), "password".to_string()),
     ]);
 
     let default_wordpress_vars = HashMap::from([
-        ("WORDPRESS_DB_HOST".to_string(), format!("{}-mysql", instance_label).to_string()),
+        (
+            "WORDPRESS_DB_HOST".to_string(),
+            format!("{}-mysql", instance_label).to_string(),
+        ),
         ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
         ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
         ("WORDPRESS_DB_NAME".to_string(), "wordpress".to_string()),
@@ -249,7 +274,6 @@ server {{
         nginx_port = nginx_port,
         wordpress_name = wordpress_name,
         adminer_name = adminer_name,
-
     );
 
     let instance_path = instance_dir.join("nginx");
@@ -263,7 +287,7 @@ server {{
 pub async fn generate_wpcli_config(
     config: &crate::AppConfig,
     instance_label: &str,
-    home_dir: &PathBuf
+    home_dir: &PathBuf,
 ) -> Result<(), AnyhowError> {
     let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
     let wpcli_yml = format!(
@@ -285,16 +309,17 @@ define('DB_PASSWORD', 'password');
 error_reporting(E_ERROR);
 define('WP_DEBUG', false);
         "#,
-        instance_dir = instance_dir.to_str().ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
+        instance_dir = instance_dir
+            .to_str()
+            .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
     );
 
     let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
     utils::create_path(&instance_dir).await?;
     let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
-    let wpcli_php_path  = instance_dir.join("wp-cli.local.php");
+    let wpcli_php_path = instance_dir.join("wp-cli.local.php");
     fs::write(&wpcli_yml_path, wpcli_yml).await?;
     fs::write(&wpcli_php_path, wpcli_php).await?;
 
     Ok(())
 }
-
