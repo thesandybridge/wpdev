@@ -98,7 +98,7 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 
 ## Contributing
 
-Contributions are welcome. Please read the [CONTRIBUTING.md]("./CONTRIBUTING.md") file for guidelines on how to contribute.
+Contributions are welcome. Please read the [Contributing Guidelines](CONTRIBUTING.md) file for guidelines on how to contribute.
 
 ## License
 
