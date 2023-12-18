@@ -3,4 +3,5 @@ members = [
     "wpdev_core",
     "wpdev_cli",
     "wpdev_api",
+    "wpdev_frontend",
 ]
