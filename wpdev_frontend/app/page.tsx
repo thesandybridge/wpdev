@@ -38,7 +38,7 @@ export default function Home() {
         });
     }, [instances]);
 
-    const handleButtonClick = async (action: string, payload: any) => {
+    const handleButtonClick = async (action: string) => {
         setIsLoading(true);
         try {
             const response = await fetch(`${api}instances/${action}`, {
@@ -71,7 +71,7 @@ export default function Home() {
             requestInspect();
         };
 
-        ws.current.onmessage = (event) => {
+        ws.current.onmessage = (event: any) => {
             try {
                 const data = JSON.parse(event.data);
                 console.log('Received data:', data);
@@ -81,11 +81,11 @@ export default function Home() {
             }
         };
 
-        ws.current.onerror = (event) => {
+        ws.current.onerror = (event: any) => {
             console.error('WebSocket error:', event);
         };
 
-        ws.current.onclose = (event) => {
+        ws.current.onclose = (event: any) => {
             console.log(`WebSocket connection closed: ${event.code} - ${event.reason}`);
             // Implement reconnection logic if needed
         };
