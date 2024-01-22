@@ -100,6 +100,15 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 - Run wpdev --help for a list of commands and usage instructions.
 - Perform similar operations as the WebApp through command-line instructions.
 
+## Roadmap
+
+The roadmap outlines the planned improvements and major features that are in the pipeline for wpdev. This list is subject to change and will be updated as the project evolves.
+
+- [ ] Rebuild Frontend with SvelteKit: Transition the current Next.js-based frontend to SvelteKit to enhance performance and maintainability.
+- [ ] Add Customization Framework: Implement a framework to configure the frontend and individual WordPress sites, allowing for greater flexibility and user personalization.
+
+Please note that this roadmap is indicative and might evolve based on the project's progress, community feedback, and contributor availability.
+
 ## Contributing 👥
 
 Contributions are welcome. Please read the [Contributing Guidelines](CONTRIBUTING.md) file for guidelines on how to contribute.
