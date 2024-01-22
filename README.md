@@ -100,7 +100,7 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 - Run wpdev --help for a list of commands and usage instructions.
 - Perform similar operations as the WebApp through command-line instructions.
 
-## Roadmap
+## Roadmap 🛣️
 
 The roadmap outlines the planned improvements and major features that are in the pipeline for wpdev. This list is subject to change and will be updated as the project evolves.
 
