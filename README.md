@@ -104,7 +104,7 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 
 The roadmap outlines the planned improvements and major features that are in the pipeline for wpdev. This list is subject to change and will be updated as the project evolves.
 
-- [ ] Rebuild Frontend with SvelteKit: Transition the current Next.js-based frontend to SvelteKit to enhance performance and maintainability.
+- [ ] Rebuild Frontend with Astro/HTMX: Transition the current Next.js-based frontend to Astro/HTMX to enhance performance and maintainability.
 - [ ] Add Customization Framework: Implement a framework to configure the frontend and individual WordPress sites, allowing for greater flexibility and user personalization.
 
 Please note that this roadmap is indicative and might evolve based on the project's progress, community feedback, and contributor availability.
