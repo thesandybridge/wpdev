@@ -1,8 +1,8 @@
 use anyhow::{Error as AnyhowError, Result};
+use bollard::container::CreateContainersOptions;
+use bollard::Docker;
 use log::info;
 use serde::{Deserialize, Serialize};
-use shiplift::builder::ContainerOptions;
-use shiplift::{Docker, Error as DockerError};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceContainer {
@@ -14,11 +14,11 @@ pub struct InstanceContainer {
 impl InstanceContainer {
     pub async fn new(
         docker: &Docker,
-        options: ContainerOptions,
+        options: CreateContainersOptions<String>,
         container_type: &str,
         container_ids: &mut Vec<String>,
-    ) -> Result<(String, crate::ContainerStatus), AnyhowError> {
-        match docker.containers().create(&options).await {
+    ) -> Result<(String, crate::ContainerStatus)> {
+        match docker.create_container(Some(options), None).await? {
             Ok(container) => {
                 container_ids.push(container.id.clone());
                 log::info!(

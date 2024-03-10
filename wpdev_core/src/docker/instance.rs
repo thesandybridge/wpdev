@@ -1,9 +1,7 @@
 use anyhow::{Error as AnyhowError, Result};
+use bollard::Docker;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use shiplift::builder::ContainerListOptions;
-use shiplift::rep::Container;
-use shiplift::Docker;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::fs;
@@ -139,7 +137,7 @@ impl Instance {
 
         let env_vars = config::initialize_env_vars(instance_label, &user_env_vars).await?;
 
-        config::create_network_if_not_exists(&docker, &network_name).await?;
+        config::create_network_if_not_exists(&docker, Some(&network_name)).await?;
 
         let nginx_port = utils::find_free_port().await?;
         let adminer_port = utils::find_free_port().await?;
@@ -225,13 +223,13 @@ impl Instance {
         docker: &Docker,
         network_name: &str,
         containers: Vec<Container>,
-    ) -> Result<HashMap<String, Instance>, AnyhowError> {
+    ) -> Result<HashMap<String, Instance>> {
         let mut instances: HashMap<String, Instance> = HashMap::new();
 
         info!("Starting to list instances");
 
         for container in containers {
-            let details = match docker.containers().get(&container.id).inspect().await {
+            let details = match docker.inspect_container(&container.name, options).await? {
                 Ok(details) => details,
                 Err(e) => {
                     error!("Error inspecting container {}: {}", container.id, e);

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use shiplift::builder::ContainerOptions;
 use std::collections::HashMap;
 
 pub mod config;

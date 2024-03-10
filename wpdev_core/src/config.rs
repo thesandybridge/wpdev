@@ -1,7 +1,8 @@
+use bollard::image::{CreateImageOptions, ListImagesOptions};
+use bollard::network::{CreateNetworkOptions, ListNetworksOptions};
+use bollard::Docker;
 use futures::stream::StreamExt;
 use log::{error, info};
-use shiplift::NetworkCreateOptions;
-use shiplift::{Docker, ImageListOptions, PullOptions};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -41,10 +42,12 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
 /// ```
 /// let image_exists = image_exists("wordpress:latest").await;
 /// ```
-pub async fn image_exists(image_name: &str) -> Result<bool, shiplift::Error> {
-    let docker = Docker::new();
-    let options = ImageListOptions::default();
-    let images = docker.images().list(&options).await?;
+pub async fn image_exists(image_name: &str) -> Result<bool> {
+    let docker = Docker::connect_with_defaults()?;
+    let options = Some(ListImagesOptions::<String> {
+        ..Default::default()
+    });
+    let images = docker.list_images(options).await?;
     Ok(images.iter().any(|image| {
         image
             .repo_tags
@@ -75,19 +78,21 @@ pub async fn image_exists(image_name: &str) -> Result<bool, shiplift::Error> {
 /// ```
 /// pull_docker_image_if_not_exists("wordpress:latest").await?;
 /// ```
-async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
+async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
     let image = image_exists(image_name).await?;
     if !image {
-        let docker = Docker::new();
-        let mut pull_options = PullOptions::builder();
-        pull_options.image(image_name);
-        let mut pull_stream = docker.images().pull(&pull_options.build());
+        let docker = Docker::connect_with_defaults()?;
+        let options = CreateImageOptions {
+            from_image: image_name,
+            ..Default::default()
+        };
+        let mut stream = docker.create_image(Some(options), None, None);
 
         let mut success = false;
         let mut error_message = None;
 
         // Process each event in the pull stream
-        while let Some(result) = pull_stream.next().await {
+        while let Some(result) = stream.next().await {
             match result {
                 Ok(_) => {
                     // Image successfully pulled
@@ -135,28 +140,26 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
 /// * `network_name` - name of the network
 pub async fn create_network_if_not_exists(
     docker: &Docker,
-    network_name: &str,
-) -> Result<(), shiplift::Error> {
-    let networks = docker.networks().list(&Default::default()).await?;
-    if networks.iter().any(|network| network.name == network_name) {
-        // Network already exists
-        info!("Network '{}' already exists, skipping...", network_name);
-        Ok(())
-    } else {
-        // Create network
-        let network_options = NetworkCreateOptions::builder(network_name).build();
-
-        match docker.networks().create(&network_options).await {
-            Ok(container) => {
-                info!("Wordpress network successfully created: {:?}", container);
-                Ok(())
-            }
-            Err(err) => {
-                error!("Error creating network '{}': {:?}", network_name, err);
-                Err(err)
-            }
-        }
+    network_name: Option<&str>,
+) -> Result<()> {
+    let network_list_options = Some(ListNetworksOptions::<String> {
+        ..Default::default()
+    });
+    let networks = docker.list_networks(network_list_options).await?;
+    if !networks.iter().any(|network| {
+        network
+            .name
+            .as_ref()
+            .map(|name| name == network_name.unwrap_or("wpdev"))
+            .unwrap_or(false)
+    }) {
+        let options = CreateNetworkOptions {
+            name: network_name.unwrap_or("wpdev"),
+            ..Default::default()
+        };
+        docker.create_network(options).await?;
     }
+    Ok(())
 }
 
 fn merge_env_vars(
