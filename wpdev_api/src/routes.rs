@@ -20,10 +20,8 @@ pub async fn create_instance(
     let docker = Docker::new();
     let uuid = Uuid::new_v4().to_string();
 
-    // Default environment variables if no data is provided
-    let default_env_vars = ContainerEnvVars::default(); // Ensure you have a default implementation
+    let default_env_vars = ContainerEnvVars::default();
 
-    // Use the provided env_vars if available, otherwise use default
     let env_vars = env_vars.map_or(default_env_vars, |json| json.into_inner());
 
     match Instance::new(&docker, wpdev_core::NETWORK_NAME, &uuid, env_vars).await {

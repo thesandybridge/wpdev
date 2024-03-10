@@ -4,3 +4,4 @@ members = [
     "wpdev_cli",
     "wpdev_api",
 ]
+resolver = "2"

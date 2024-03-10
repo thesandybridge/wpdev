@@ -41,16 +41,16 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
 /// ```
 /// let image_exists = image_exists("wordpress:latest").await;
 /// ```
-pub async fn image_exists(image_name: &str) -> bool {
+pub async fn image_exists(image_name: &str) -> Result<bool, shiplift::Error> {
     let docker = Docker::new();
     let options = ImageListOptions::default();
-    let images = docker.images().list(&options).await.unwrap();
-    images.iter().any(|image| {
+    let images = docker.images().list(&options).await?;
+    Ok(images.iter().any(|image| {
         image
             .repo_tags
             .iter()
-            .any(|tag| tag.contains(&image_name.to_string())) // Convert image_name to String
-    })
+            .any(|tag| tag.contains(&image_name.to_string()))
+    }))
 }
 
 /// Pull a Docker image if it does not already exist locally.
@@ -73,10 +73,11 @@ pub async fn image_exists(image_name: &str) -> bool {
 /// # Examples
 ///
 /// ```
-/// pull_docker_image_if_not_exists("wordpress:latest").await;
+/// pull_docker_image_if_not_exists("wordpress:latest").await?;
 /// ```
 async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
-    if !image_exists(image_name).await {
+    let image = image_exists(image_name).await?;
+    if !image {
         let docker = Docker::new();
         let mut pull_options = PullOptions::builder();
         pull_options.image(image_name);
