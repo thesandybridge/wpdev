@@ -132,7 +132,6 @@ impl Instance {
         user_env_vars: crate::ContainerEnvVars,
     ) -> Result<Self> {
         let config = config::read_or_create_config().await?;
-        let mut container_ids = Vec::new();
         let home_dir =
             dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
 

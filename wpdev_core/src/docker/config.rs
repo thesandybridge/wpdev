@@ -35,14 +35,19 @@ pub async fn configure_container(
                 .ok_or_else(|| AnyhowError::msg("Configuration directory not found"))?;
             HostConfig {
                 binds: Some(vec![format!("{}:{}", config_path_str, container_path)]),
+                network_mode: Some(crate::NETWORK_NAME.to_string()),
                 ..Default::default()
             }
         }
         Some((None, container_path)) => HostConfig {
             binds: Some(vec![format!("{}:{}", path_str, container_path)]),
+            network_mode: Some(crate::NETWORK_NAME.to_string()),
             ..Default::default()
         },
-        None => HostConfig::default(),
+        None => HostConfig {
+            network_mode: Some(crate::NETWORK_NAME.to_string()),
+            ..Default::default()
+        },
     };
 
     let mut container_config = Config {
