@@ -34,7 +34,7 @@ pub async fn configure_container(
     if let Some((host_port, container_port)) = port {
         let port_key = format!("{}/tcp", container_port);
         let binding = PortBinding {
-            host_ip: Some("0.0.0.0".to_string()),
+            host_ip: None,
             host_port: Some(host_port.to_string()),
         };
         port_bindings.insert(port_key, Some(vec![binding]));
@@ -60,7 +60,7 @@ pub async fn configure_container(
         ..Default::default()
     };
 
-    let container_config = Config {
+    let mut container_config = Config {
         image: Some(container_image.to_string()),
         env: Some(env_vars),
         labels: Some(labels_view),
@@ -68,6 +68,12 @@ pub async fn configure_container(
         host_config: Some(host_config),
         ..Default::default()
     };
+
+    if let Some((_, container_port)) = port {
+        let port_key = format!("{}/tcp", container_port);
+        let exposed_ports = HashMap::from([(port_key.clone(), HashMap::new())]);
+        container_config.exposed_ports = Some(exposed_ports);
+    }
 
     let options = CreateContainerOptions {
         name: format!("{}-{}", instance_label, container_image),
@@ -120,6 +126,10 @@ pub async fn configure_wordpress_container(
     labels: &HashMap<String, String>,
     env_vars: &crate::EnvVars,
 ) -> Result<(String, crate::ContainerStatus)> {
+    let wordpress_config_dir = instance_path.join("wordpress");
+    let wordpress_path = utils::create_path(&wordpress_config_dir)
+        .await
+        .context("Failed to create wordpress directory")?;
     let (ids, status) = configure_container(
         instance_label,
         instance_path,
@@ -127,7 +137,7 @@ pub async fn configure_wordpress_container(
         labels,
         env_vars.wordpress.clone(),
         Some("1000:1000".to_string()),
-        Some((None, "/var/www/html/")),
+        Some((Some(wordpress_path.to_path_buf()), "/var/www/html/")),
         None,
     )
     .await?;
@@ -140,6 +150,10 @@ pub async fn configure_mysql_container(
     labels: &HashMap<String, String>,
     env_vars: &crate::EnvVars,
 ) -> Result<(String, crate::ContainerStatus)> {
+    let mysql_config_dir = instance_path.join("mysql");
+    let mysql_socket_path = utils::create_path(&mysql_config_dir)
+        .await
+        .context("Failed to create mysql directory")?;
     let (ids, status) = configure_container(
         instance_label,
         instance_path,
@@ -147,7 +161,7 @@ pub async fn configure_mysql_container(
         labels,
         env_vars.mysql.clone(),
         Some("1000:1000".to_string()),
-        Some((None, "/var/run/mysqld/")),
+        Some((Some(mysql_socket_path.to_path_buf()), "/var/run/mysqld")),
         None,
     )
     .await?;
@@ -167,9 +181,9 @@ pub async fn configure_adminer_container(
         crate::ContainerImage::Adminer,
         labels,
         env_vars.adminer.clone(),
-        Some("1000:1000".to_string()),
         None,
-        Some((8080, adminer_port)),
+        None,
+        Some((adminer_port, 8080)),
     )
     .await?;
     Ok((ids, status))
