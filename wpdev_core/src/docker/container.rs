@@ -1,5 +1,8 @@
 use anyhow::{Error as AnyhowError, Result};
-use bollard::container::CreateContainersOptions;
+use bollard::container::{
+    Config, CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
+    StartContainerOptions, StopContainerOptions,
+};
 use bollard::Docker;
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -14,36 +17,46 @@ pub struct InstanceContainer {
 impl InstanceContainer {
     pub async fn new(
         docker: &Docker,
-        options: CreateContainersOptions<String>,
-        container_type: &str,
+        config: Config<String>,
+        container_image: crate::ContainerImage,
         container_ids: &mut Vec<String>,
-    ) -> Result<(String, crate::ContainerStatus)> {
-        match docker.create_container(Some(options), None).await? {
-            Ok(container) => {
-                container_ids.push(container.id.clone());
-                log::info!(
+    ) -> Result<(String, crate::ContainerStatus), AnyhowError> {
+        let name = format!("{}-container", container_image.to_string());
+        let options = CreateContainerOptions {
+            name: name.clone(),
+            platform: None,
+        };
+
+        match docker.create_container(Some(options), config).await {
+            Ok(response) => {
+                let container_id = response.id;
+                container_ids.push(container_id.clone());
+                println!(
                     "{} container successfully created: {:?}",
-                    container_type,
-                    container
+                    container_image.to_string(),
+                    container_id
                 );
 
-                match Self::get_status(docker, &container.id).await {
+                match Self::get_status(docker, &container_id).await {
                     Ok(status) => Ok((
-                        container.id,
+                        container_id,
                         status.unwrap_or(crate::ContainerStatus::Unknown),
                     )),
                     Err(err) => {
-                        log::error!(
+                        println!(
                             "Failed to fetch status for container {}: {:?}",
-                            container.id,
-                            err
+                            container_id, err
                         );
                         Err(err.into())
                     }
                 }
             }
             Err(err) => {
-                log::error!("Error creating {} container: {:?}", container_type, err);
+                println!(
+                    "Error creating {} container: {:?}",
+                    container_image.to_string(),
+                    err
+                );
                 Err(err.into())
             }
         }
@@ -52,22 +65,33 @@ impl InstanceContainer {
     pub async fn get_status(
         docker: &Docker,
         container_id: &str,
-    ) -> Result<Option<crate::ContainerStatus>, DockerError> {
-        match docker.containers().get(container_id).inspect().await {
-            Ok(container_info) => {
-                let status = match container_info.state.status.as_str() {
-                    "running" => crate::ContainerStatus::Running,
-                    "exited" => crate::ContainerStatus::Stopped,
-                    "paused" => crate::ContainerStatus::Paused,
-                    "dead" => crate::ContainerStatus::Dead,
-                    "restarting" => crate::ContainerStatus::Restarting,
-                    _ => crate::ContainerStatus::Unknown,
-                };
-                Ok(Some(status))
+    ) -> Result<Option<crate::ContainerStatus>, AnyhowError> {
+        let container_info = docker
+            .inspect_container(container_id, None)
+            .await
+            .map_err(|err| AnyhowError::new(err))?;
+
+        let status = match container_info
+            .state
+            .as_ref()
+            .and_then(|state| state.status.as_ref())
+        {
+            Some(bollard::models::ContainerStateStatusEnum::RUNNING) => {
+                crate::ContainerStatus::Running
             }
-            Err(DockerError::Fault { code, .. }) if code.as_u16() == 404 => Ok(None),
-            Err(e) => Err(e),
-        }
+            Some(bollard::models::ContainerStateStatusEnum::EXITED) => {
+                crate::ContainerStatus::Stopped
+            }
+            Some(bollard::models::ContainerStateStatusEnum::PAUSED) => {
+                crate::ContainerStatus::Paused
+            }
+            Some(bollard::models::ContainerStateStatusEnum::DEAD) => crate::ContainerStatus::Dead,
+            Some(bollard::models::ContainerStateStatusEnum::RESTARTING) => {
+                crate::ContainerStatus::Restarting
+            }
+            _ => crate::ContainerStatus::Unknown,
+        };
+        Ok(Some(status))
     }
 
     pub async fn inspect(
@@ -133,15 +157,32 @@ impl InstanceContainer {
 
 pub async fn handle_container(
     docker: &Docker,
-    container_id: &String,
+    container_id: &str,
     operation: crate::ContainerOperation,
 ) -> Result<InstanceContainer, AnyhowError> {
-    let container = docker.containers().get(container_id).inspect().await?;
-    let container_status = InstanceContainer::get_status(docker, container_id).await?;
+    let container_info = docker
+        .inspect_container(container_id, None)
+        .await
+        .map_err(AnyhowError::from)?;
+    let container_status = InstanceContainer::get_status(docker, container_id)
+        .await?
+        .unwrap_or(crate::ContainerStatus::Unknown);
+    let container_config = container_info
+        .config
+        .ok_or_else(|| AnyhowError::msg("Container config not found"))?;
+    let container_image_label = container_config
+        .labels
+        .as_ref()
+        .and_then(|labels| labels.get("image").cloned())
+        .unwrap_or_else(|| "Unknown".to_string());
+
     match operation {
         crate::ContainerOperation::Start => {
-            if container_status != Some(crate::ContainerStatus::Running) {
-                docker.containers().get(container_id).start().await?;
+            if container_status != crate::ContainerStatus::Running {
+                docker
+                    .start_container(container_id, None::<StartContainerOptions<String>>)
+                    .await
+                    .map_err(AnyhowError::from)?;
                 info!("{} container successfully started", container_id);
             } else {
                 info!(
@@ -151,8 +192,11 @@ pub async fn handle_container(
             }
         }
         crate::ContainerOperation::Stop => {
-            if container_status == Some(crate::ContainerStatus::Running) {
-                docker.containers().get(container_id).stop(None).await?;
+            if container_status == crate::ContainerStatus::Running {
+                docker
+                    .stop_container(container_id, None::<StopContainerOptions>)
+                    .await
+                    .map_err(AnyhowError::from)?;
                 info!("{} container successfully stopped", container_id);
             } else {
                 info!(
@@ -162,48 +206,35 @@ pub async fn handle_container(
             }
         }
         crate::ContainerOperation::Restart => {
-            if container_status == Some(crate::ContainerStatus::Running) {
-                docker.containers().get(container_id).restart(None).await?;
-                info!("{} container successfully restarted", container_id);
-            } else {
-                info!(
-                    "{} container is not running, skipping restart operation",
-                    container_id
-                );
-            }
+            docker
+                .restart_container(container_id, None::<RestartContainerOptions>)
+                .await
+                .map_err(AnyhowError::from)?;
+            info!("{} container successfully restarted", container_id);
         }
         crate::ContainerOperation::Delete => {
-            if container_status == Some(crate::ContainerStatus::Running) {
-                // First, stop the container if it's running
-                docker.containers().get(container_id).stop(None).await?;
-                info!(
-                    "{} container successfully stopped before deletion",
-                    container_id
-                );
+            if container_status == crate::ContainerStatus::Running {
+                docker
+                    .stop_container(container_id, None::<StopContainerOptions>)
+                    .await
+                    .map_err(AnyhowError::from)?;
             }
-            // Then delete the container
-            docker.containers().get(container_id).delete().await?;
+            docker
+                .remove_container(container_id, None::<RemoveContainerOptions>)
+                .await
+                .map_err(AnyhowError::from)?;
             info!("{} container successfully deleted", container_id);
         }
         crate::ContainerOperation::Inspect => {
-            docker.containers().get(container_id).inspect().await?;
+            // Inspection already occurred at the start; this is just to match the case
             info!("{} container successfully inspected", container_id);
         }
     }
 
     Ok(InstanceContainer {
-        container_id: container_id.clone(),
-        container_image: match container.config.labels {
-            Some(ref labels) => match labels.get("image") {
-                Some(image) => crate::ContainerImage::from_string(image)
-                    .unwrap_or(crate::ContainerImage::Unknown),
-                None => crate::ContainerImage::Unknown,
-            },
-            None => crate::ContainerImage::Unknown,
-        },
-        container_status: match container_status {
-            Some(status) => status,
-            None => crate::ContainerStatus::Unknown,
-        },
+        container_id: container_id.to_string(),
+        container_image: crate::ContainerImage::from_string(&container_image_label)
+            .unwrap_or(crate::ContainerImage::Unknown),
+        container_status,
     })
 }

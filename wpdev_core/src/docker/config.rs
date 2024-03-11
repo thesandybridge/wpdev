@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 pub async fn configure_container(
     instance_label: &str,
-    instance_path: &PathBuf, // Added instance_path parameter
+    instance_path: &PathBuf,
     container_image: crate::ContainerImage,
     labels: &HashMap<String, String>,
     env_vars: Vec<String>,
