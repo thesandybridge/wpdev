@@ -10,7 +10,7 @@ use dirs;
 use anyhow::{Context, Error as AnyhowError, Result};
 use tokio::fs::{self};
 
-use crate::utils;
+use crate::{utils, ContainerImage};
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     let config_dir =
@@ -168,6 +168,7 @@ pub async fn create_network_if_not_exists(
     }) {
         let options = CreateNetworkOptions {
             name: network_name.unwrap_or("wpdev"),
+            driver: "bridge",
             ..Default::default()
         };
         docker.create_network(options).await?;
@@ -206,7 +207,7 @@ pub async fn initialize_env_vars(
         ("MYSQL_PORT".to_string(), "3306".to_string()),
         (
             "ADMINER_DEFAULT_SERVER".to_string(),
-            format!("{}-mysql", instance_label).to_string(),
+            format!("{}-{}", instance_label, ContainerImage::MySQL.to_string()).to_string(),
         ),
         (
             "ADMINER_DEFAULT_USERNAME".to_string(),
@@ -232,7 +233,7 @@ pub async fn initialize_env_vars(
     let default_wordpress_vars = HashMap::from([
         (
             "WORDPRESS_DB_HOST".to_string(),
-            format!("{}-mysql", instance_label).to_string(),
+            format!("{}-{}", instance_label, ContainerImage::MySQL.to_string()).to_string(),
         ),
         ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
         ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),

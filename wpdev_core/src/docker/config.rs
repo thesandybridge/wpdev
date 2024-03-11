@@ -87,7 +87,7 @@ pub async fn configure_container(
     }
 
     let options = CreateContainerOptions {
-        name: format!("{}-{}", instance_label, container_image),
+        name: format!("{}-{}", instance_label, container_image.to_string()),
         platform: None,
     };
 
