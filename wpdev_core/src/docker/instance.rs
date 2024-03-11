@@ -1,6 +1,7 @@
 use anyhow::{Error as AnyhowError, Result};
+use bollard::container::{InspectContainerOptions, ListContainersOptions};
 use bollard::Docker;
-use log::{error, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -202,88 +203,86 @@ impl Instance {
             (adminer_options, "adminer"),
         ];
 
-        for (options, container_type) in containers_to_create {
+        for (options, container_type_str) in containers_to_create {
+            let container_image = match container_type_str {
+                "mysql" => crate::ContainerImage::MySQL,
+                "wordpress" => crate::ContainerImage::Wordpress,
+                "nginx" => crate::ContainerImage::Nginx,
+                "adminer" => crate::ContainerImage::Adminer,
+                _ => crate::ContainerImage::Unknown,
+            };
+
             let (container_id, container_status) =
-                InstanceContainer::new(docker, options, container_type, &mut container_ids).await?;
+                InstanceContainer::new(docker, options, container_image, &mut container_ids)
+                    .await?;
+
             let container = InstanceContainer {
                 container_id: container_id.clone(),
                 container_status,
-                container_image: match container_type {
-                    "mysql" => crate::ContainerImage::MySQL,
-                    "wordpress" => crate::ContainerImage::Wordpress,
-                    "nginx" => crate::ContainerImage::Nginx,
-                    "adminer" => crate::ContainerImage::Adminer,
-                    _ => crate::ContainerImage::Unknown,
-                },
+                container_image,
             };
+
             instance.containers.push(container);
         }
 
-        // Determine overall instance status based on container statuses
         instance.status = Self::get_status(&instance.containers);
 
         Ok(instance)
     }
 
-    async fn list(
+    pub async fn list(
         docker: &Docker,
         network_name: &str,
-        containers: Vec<Container>,
-    ) -> Result<HashMap<String, Instance>> {
-        let mut instances: HashMap<String, Instance> = HashMap::new();
+    ) -> Result<HashMap<String, Instance>, AnyhowError> {
+        let mut labels_map: HashMap<String, HashMap<String, String>> = HashMap::new();
 
         info!("Starting to list instances");
 
+        let containers = docker
+            .list_containers(Some(ListContainersOptions::<String> {
+                all: true,
+                ..Default::default()
+            }))
+            .await
+            .map_err(AnyhowError::from)?;
+
         for container in containers {
-            let details = match docker.inspect_container(&container.name, options).await? {
-                Ok(details) => details,
-                Err(e) => {
-                    error!("Error inspecting container {}: {}", container.id, e);
+            let container_id = container
+                .id
+                .as_ref()
+                .ok_or_else(|| AnyhowError::msg("Container ID not found"))?;
+            let container_details = docker
+                .inspect_container(container_id, Some(InspectContainerOptions { size: false }))
+                .await
+                .map_err(AnyhowError::from)?;
+
+            if let Some(network_settings) = &container_details.network_settings {
+                if let Some(networks) = &network_settings.networks {
+                    if !networks.contains_key(network_name) {
+                        continue;
+                    }
+                } else {
                     continue;
                 }
-            };
-
-            if !details.network_settings.networks.contains_key(network_name) {
+            } else {
                 continue;
             }
 
-            if let Some(labels) = &details.config.labels {
-                if let Some(instance_label) = labels.get("instance") {
-                    let instance = instances
-                        .entry(instance_label.to_string())
-                        .or_insert(Instance::default(instance_label, labels).await.unwrap());
-
-                    let container_image = match labels.get("image") {
-                        Some(image) => crate::ContainerImage::from_string(image)
-                            .unwrap_or(crate::ContainerImage::Unknown),
-                        None => crate::ContainerImage::Unknown,
-                    };
-
-                    let container_status =
-                        match InstanceContainer::get_status(docker, &container.id).await {
-                            Ok(status) => status.unwrap_or(crate::ContainerStatus::Unknown),
-                            Err(err) => {
-                                error!(
-                                    "Failed to fetch status for container {}: {:?}",
-                                    container.id, err
-                                );
-                                crate::ContainerStatus::Unknown
-                            }
-                        };
-
-                    instance.containers.push(InstanceContainer {
-                        container_id: container.id.clone(),
-                        container_image,
-                        container_status,
-                    });
-
-                    instance.status = Instance::get_status(&instance.containers);
+            if let Some(config) = &container_details.config {
+                if let Some(labels) = &config.labels {
+                    if let Some(instance_label) = labels.get("instance") {
+                        labels_map
+                            .entry(instance_label.clone())
+                            .or_insert_with(|| labels.clone());
+                    }
                 }
             }
         }
 
-        for instance in instances.values_mut() {
-            instance.status = Instance::get_status(&instance.containers);
+        let mut instances: HashMap<String, Instance> = HashMap::new();
+        for (instance_label, labels) in labels_map {
+            let instance = Instance::default(&instance_label, &labels).await?;
+            instances.insert(instance_label, instance);
         }
 
         info!("Successfully listed instances");
@@ -295,11 +294,8 @@ impl Instance {
         docker: &Docker,
         network_name: &str,
     ) -> Result<HashMap<String, Instance>, AnyhowError> {
-        let containers = docker
-            .containers()
-            .list(&ContainerListOptions::builder().all().build())
-            .await?;
-        Ok(Self::list(docker, network_name, containers).await?)
+        // Directly call the refactored `list` method.
+        Instance::list(docker, network_name).await
     }
 
     pub fn get_status(containers: &Vec<InstanceContainer>) -> crate::InstanceStatus {
