@@ -165,8 +165,14 @@ impl Instance {
         let nginx_options =
             configure_nginx_container(&instance_path, instance_label, &labels, nginx_port).await?;
 
-        let adminer_options =
-            configure_adminer_container(instance_label, &labels, &env_vars, adminer_port).await?;
+        let adminer_options = configure_adminer_container(
+            instance_label,
+            &instance_path,
+            &labels,
+            &env_vars,
+            adminer_port,
+        )
+        .await?;
 
         let wordpress_data = Self::parse(
             &env_vars,

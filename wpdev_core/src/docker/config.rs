@@ -7,14 +7,15 @@ use bollard::Docker;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-async fn configure_container(
+pub async fn configure_container(
     instance_label: &str,
+    instance_path: &PathBuf, // Added instance_path parameter
     container_image: crate::ContainerImage,
-    instance_path: &PathBuf,
     labels: &HashMap<String, String>,
     env_vars: Vec<String>,
     user: Option<String>,
-    volume_binding: &str,
+    volume_binding: Option<(Option<PathBuf>, &str)>,
+    port: Option<u32>,
 ) -> Result<()> {
     let docker = Docker::connect_with_defaults()?;
     let config_dir = instance_path.join(&container_image.to_string());
@@ -24,17 +25,26 @@ async fn configure_container(
         .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?;
 
     let container_labels = utils::create_labels(container_image.clone(), labels.clone());
-    let labels_view: HashMap<String, String> = container_labels
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+    let labels_view = container_labels.into_iter().collect();
 
-    let host_config = HostConfig {
-        binds: Some(vec![format!("{}:{}", path_str, volume_binding)]),
-        ..Default::default()
+    let host_config = match volume_binding {
+        Some((Some(config_path), container_path)) => {
+            let config_path_str = config_path
+                .to_str()
+                .ok_or_else(|| AnyhowError::msg("Configuration directory not found"))?;
+            HostConfig {
+                binds: Some(vec![format!("{}:{}", config_path_str, container_path)]),
+                ..Default::default()
+            }
+        }
+        Some((None, container_path)) => HostConfig {
+            binds: Some(vec![format!("{}:{}", path_str, container_path)]),
+            ..Default::default()
+        },
+        None => HostConfig::default(),
     };
 
-    let container_config = Config {
+    let mut container_config = Config {
         image: Some(container_image.to_string()),
         env: Some(env_vars),
         labels: Some(labels_view),
@@ -43,9 +53,17 @@ async fn configure_container(
         ..Default::default()
     };
 
+    if let Some(port) = port {
+        let port_key = format!("{}/tcp", port);
+        container_config.exposed_ports = Some(HashMap::from([(
+            port_key.to_string(),
+            HashMap::<(), ()>::new(),
+        )]));
+    }
+
     let options = CreateContainerOptions {
         name: format!("{:?}-{:?}", instance_label, container_image),
-        ..Default::default()
+        platform: None,
     };
 
     docker
@@ -62,12 +80,13 @@ pub async fn configure_wordpress_container(
 ) -> Result<()> {
     configure_container(
         instance_label,
-        crate::ContainerImage::Wordpress,
         instance_path,
+        crate::ContainerImage::Wordpress,
         labels,
         env_vars.wordpress.clone(),
         Some("1000:1000".to_string()),
-        "/var/www/html/",
+        Some((None, "/var/www/html/")),
+        None,
     )
     .await?;
     Ok(())
@@ -81,12 +100,13 @@ pub async fn configure_mysql_container(
 ) -> Result<()> {
     configure_container(
         instance_label,
-        crate::ContainerImage::MySQL,
         instance_path,
+        crate::ContainerImage::MySQL,
         labels,
         env_vars.mysql.clone(),
         Some("1000:1000".to_string()),
-        "/var/run/mysqld/",
+        Some((None, "/var/run/mysqld/")),
+        None,
     )
     .await?;
     Ok(())
@@ -94,18 +114,20 @@ pub async fn configure_mysql_container(
 
 pub async fn configure_adminer_container(
     instance_label: &str,
-    labels: &HashMap<String, String>,
     instance_path: &PathBuf,
+    labels: &HashMap<String, String>,
     env_vars: &crate::EnvVars,
+    adminer_port: u32,
 ) -> Result<()> {
     configure_container(
         instance_label,
-        crate::ContainerImage::Adminer,
         instance_path,
+        crate::ContainerImage::Adminer,
         labels,
         env_vars.adminer.clone(),
         None,
-        "/var/www/html/",
+        Some((None, "/var/www/html/")),
+        Some(adminer_port),
     )
     .await?;
     Ok(())
@@ -117,7 +139,6 @@ pub async fn configure_nginx_container(
     labels: &HashMap<String, String>,
     nginx_port: u32,
 ) -> Result<()> {
-    let docker = Docker::connect_with_defaults()?;
     let nginx_config_path = config::generate_nginx_config(
         instance_label,
         nginx_port,
@@ -134,41 +155,17 @@ pub async fn configure_nginx_container(
         instance_path,
     )
     .await?;
-    let nginx_labels = utils::create_labels(crate::ContainerImage::Nginx, labels.clone());
-    let nginx_labels_view: HashMap<_, _> = nginx_labels
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
-    let nginx_path_str = nginx_config_path
-        .to_str()
-        .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?;
-    let host_config = HostConfig {
-        binds: Some(vec![format!(
-            "{}:/etc/nginx/conf.d/default.conf",
-            nginx_path_str
-        )]),
-        ..Default::default()
-    };
-    let nginx_options = Some(CreateContainerOptions {
-        name: format!(
-            "{}-{}",
-            instance_label,
-            crate::ContainerImage::Nginx.to_string()
-        ),
-        platform: None,
-    });
-    let exposed_port_key = format!("{}/tcp", nginx_port);
-    let nginx_config = Config {
-        image: Some(crate::NGINX_IMAGE),
-        labels: Some(nginx_labels_view),
-        host_config: Some(host_config),
-        exposed_ports: Some(HashMap::from([(
-            exposed_port_key.as_str(),
-            HashMap::<(), ()>::new(),
-        )])),
-        ..Default::default()
-    };
+    configure_container(
+        instance_label,
+        instance_path,
+        crate::ContainerImage::Nginx,
+        labels,
+        Vec::new(),
+        None,
+        Some((Some(nginx_config_path), "/etc/nginx/conf.d/default.conf")),
+        Some(nginx_port),
+    )
+    .await?;
 
-    docker.create_container(nginx_options, nginx_config).await?;
     Ok(())
 }
