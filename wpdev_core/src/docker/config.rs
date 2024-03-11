@@ -1,9 +1,9 @@
 use crate::config;
 use crate::docker::container;
 use crate::utils;
-use anyhow::{Error as AnyhowError, Result};
+use anyhow::{Context, Result};
 use bollard::container::{Config, CreateContainerOptions};
-use bollard::models::HostConfig;
+use bollard::models::{HostConfig, PortBinding};
 use bollard::Docker;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,41 +16,51 @@ pub async fn configure_container(
     env_vars: Vec<String>,
     user: Option<String>,
     volume_binding: Option<(Option<PathBuf>, &str)>,
-    port: Option<u32>,
+    port: Option<(u32, u32)>,
 ) -> Result<(String, crate::ContainerStatus)> {
     let docker = Docker::connect_with_defaults()?;
     let config_dir = instance_path.join(&container_image.to_string());
-    let path = utils::create_path(&config_dir).await?;
+    let path = utils::create_path(&config_dir)
+        .await
+        .context("Failed to create instance directory")?;
     let path_str = path
         .to_str()
-        .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?;
+        .context("Failed to convert instance directory to string")?;
 
     let container_labels = utils::create_labels(container_image.clone(), labels.clone());
     let labels_view = container_labels.into_iter().collect();
 
-    let host_config = match volume_binding {
-        Some((Some(config_path), container_path)) => {
-            let config_path_str = config_path
-                .to_str()
-                .ok_or_else(|| AnyhowError::msg("Configuration directory not found"))?;
-            HostConfig {
-                binds: Some(vec![format!("{}:{}", config_path_str, container_path)]),
-                network_mode: Some(crate::NETWORK_NAME.to_string()),
-                ..Default::default()
+    let mut port_bindings = HashMap::new();
+    if let Some((host_port, container_port)) = port {
+        let port_key = format!("{}/tcp", container_port);
+        let binding = PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some(host_port.to_string()),
+        };
+        port_bindings.insert(port_key, Some(vec![binding]));
+    }
+
+    let host_config = HostConfig {
+        binds: match volume_binding {
+            Some((Some(config_path), container_path)) => {
+                let config_path_str = config_path
+                    .to_str()
+                    .context("Failed to convert config path to string")?;
+                Some(vec![format!("{}:{}", config_path_str, container_path)])
             }
-        }
-        Some((None, container_path)) => HostConfig {
-            binds: Some(vec![format!("{}:{}", path_str, container_path)]),
-            network_mode: Some(crate::NETWORK_NAME.to_string()),
-            ..Default::default()
+            Some((None, container_path)) => Some(vec![format!("{}:{}", path_str, container_path)]),
+            None => None,
         },
-        None => HostConfig {
-            network_mode: Some(crate::NETWORK_NAME.to_string()),
-            ..Default::default()
+        network_mode: Some(crate::NETWORK_NAME.to_string()),
+        port_bindings: if port_bindings.is_empty() {
+            None
+        } else {
+            Some(port_bindings)
         },
+        ..Default::default()
     };
 
-    let mut container_config = Config {
+    let container_config = Config {
         image: Some(container_image.to_string()),
         env: Some(env_vars),
         labels: Some(labels_view),
@@ -58,14 +68,6 @@ pub async fn configure_container(
         host_config: Some(host_config),
         ..Default::default()
     };
-
-    if let Some(port) = port {
-        let port_key = format!("{}/tcp", port);
-        container_config.exposed_ports = Some(HashMap::from([(
-            port_key.to_string(),
-            HashMap::<(), ()>::new(),
-        )]));
-    }
 
     let options = CreateContainerOptions {
         name: format!("{}-{}", instance_label, container_image),
@@ -165,9 +167,9 @@ pub async fn configure_adminer_container(
         crate::ContainerImage::Adminer,
         labels,
         env_vars.adminer.clone(),
+        Some("1000:1000".to_string()),
         None,
-        Some((None, "/var/www/html/")),
-        Some(adminer_port),
+        Some((8080, adminer_port)),
     )
     .await?;
     Ok((ids, status))
@@ -203,7 +205,7 @@ pub async fn configure_nginx_container(
         Vec::new(),
         None,
         Some((Some(nginx_config_path), "/etc/nginx/conf.d/default.conf")),
-        Some(nginx_port),
+        Some((nginx_port, nginx_port)),
     )
     .await?;
 

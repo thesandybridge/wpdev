@@ -308,7 +308,7 @@ pub async fn generate_wpcli_config(
 ) -> Result<(), AnyhowError> {
     let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
     let wpcli_yml = format!(
-        r#"path: app
+        r#"path: wordpress
 require:
   - wp-cli.local.php
         "#,
