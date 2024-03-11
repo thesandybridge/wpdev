@@ -2,8 +2,8 @@ use crate::config;
 use crate::docker::container;
 use crate::utils;
 use anyhow::{Context, Result};
-use bollard::container::{Config, CreateContainerOptions};
-use bollard::models::{HostConfig, PortBinding};
+use bollard::container::{Config, CreateContainerOptions, NetworkingConfig};
+use bollard::models::{EndpointSettings, HostConfig, PortBinding};
 use bollard::Docker;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,6 +20,16 @@ pub async fn configure_container(
 ) -> Result<(String, crate::ContainerStatus)> {
     let docker = Docker::connect_with_defaults()?;
     let config_dir = instance_path.join(&container_image.to_string());
+    let mut endpoints_config = HashMap::new();
+    endpoints_config.insert(
+        crate::NETWORK_NAME.to_string(),
+        EndpointSettings {
+            ..Default::default()
+        },
+    );
+
+    let networking_config = NetworkingConfig { endpoints_config };
+
     let path = utils::create_path(&config_dir)
         .await
         .context("Failed to create instance directory")?;
@@ -66,6 +76,7 @@ pub async fn configure_container(
         labels: Some(labels_view),
         user,
         host_config: Some(host_config),
+        networking_config: Some(networking_config),
         ..Default::default()
     };
 
