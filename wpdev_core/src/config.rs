@@ -7,26 +7,40 @@ use std::path::PathBuf;
 
 use dirs;
 
-use anyhow::{Error as AnyhowError, Result};
+use anyhow::{Context, Error as AnyhowError, Result};
 use tokio::fs::{self};
 
 use crate::utils;
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
-    let config_dir = dirs::config_dir().unwrap().join("wpdev");
-    fs::create_dir_all(&config_dir).await?;
+    let config_dir =
+        dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Failed to find config directory"))?;
+    let config_dir = config_dir.join("wpdev");
+    fs::create_dir_all(&config_dir)
+        .await
+        .context("Failed to create config directory")?;
 
     let config_path = config_dir.join("config.toml");
 
-    if config_path.exists() {
-        let contents = fs::read_to_string(&config_path).await?;
-        let config: crate::AppConfig = toml::from_str(&contents)?;
-        Ok(config)
-    } else {
-        let config = crate::AppConfig::default();
-        let toml = toml::to_string(&config)?;
-        fs::write(&config_path, toml).await?;
-        Ok(config)
+    match fs::metadata(&config_path).await {
+        Ok(_) => {
+            // File exists
+            let contents = fs::read_to_string(&config_path)
+                .await
+                .context("Failed to read config file")?;
+            let config: crate::AppConfig =
+                toml::from_str(&contents).context("Failed to parse config file")?;
+            Ok(config)
+        }
+        Err(_) => {
+            // File does not exist, or other error which we treat as non-existent for creation
+            let config = crate::AppConfig::default(); // Ensure this default implementation exists
+            let toml = toml::to_string(&config).context("Failed to serialize default config")?;
+            fs::write(&config_path, toml)
+                .await
+                .context("Failed to write default config file")?;
+            Ok(config)
+        }
     }
 }
 

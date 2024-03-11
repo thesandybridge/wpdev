@@ -1,6 +1,7 @@
-use anyhow::{Error as AnyhowError, Result};
+use anyhow::{Context, Error as AnyhowError, Result};
 use bollard::container::{InspectContainerOptions, ListContainersOptions};
 use bollard::Docker;
+use dirs;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -15,7 +16,7 @@ use crate::docker::config::{
 use crate::docker::container::InstanceContainer;
 use crate::utils;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Instance {
     pub uuid: String,
     pub status: crate::InstanceStatus,
@@ -43,13 +44,9 @@ pub enum InstanceSelection {
 }
 
 impl Instance {
-    pub async fn default(
-        instance_label: &str,
-        labels: &HashMap<String, String>,
-    ) -> Result<Self, AnyhowError> {
+    pub async fn default(instance_label: &str, labels: &HashMap<String, String>) -> Result<Self> {
         let config = config::read_or_create_config().await?;
-        let home_dir =
-            dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
+        let home_dir = dirs::home_dir().context("Failed to find home directory")?;
         let instance_dir = home_dir.join(format!(
             "{}/{}/instance.toml",
             &config.custom_root, instance_label
@@ -63,9 +60,14 @@ impl Instance {
             )));
         }
 
-        let contents = fs::read_to_string(&instance_dir).await?;
-        let instance_data: InstanceData = toml::from_str(&contents)
-            .map_err(|err| AnyhowError::msg(format!("Error parsing TOML: {}", err)))?;
+        let contents = fs::read_to_string(&instance_dir).await.context(format!(
+            "Failed to read instance file at {:?}",
+            instance_dir
+        ))?;
+        let instance_data: InstanceData = toml::from_str(&contents).context(format!(
+            "Failed to parse instance data from file at {:?}",
+            instance_dir
+        ))?;
 
         let nginx_port = utils::parse_port(labels.get("nginx_port"))?;
         let adminer_port = utils::parse_port(labels.get("adminer_port"))?;
@@ -227,13 +229,35 @@ impl Instance {
         Ok(instance)
     }
 
-    pub async fn list(
-        docker: &Docker,
-        network_name: &str,
-    ) -> Result<HashMap<String, Instance>, AnyhowError> {
-        let mut labels_map: HashMap<String, HashMap<String, String>> = HashMap::new();
-
+    pub async fn list(docker: &Docker, network_name: &str) -> Result<HashMap<String, Instance>> {
         info!("Starting to list instances");
+        let config = crate::config::read_or_create_config()
+            .await
+            .context("Failed to read config")?;
+        let home_dir = dirs::home_dir().context("Failed to find home directory")?;
+        let instances_root_path = home_dir.join(&config.custom_root);
+        let mut instances = HashMap::new();
+
+        let mut entries = fs::read_dir(&instances_root_path).await.with_context(|| {
+            format!(
+                "Failed to read the instances directory: {}",
+                instances_root_path.display()
+            )
+        })?;
+
+        while let Some(entry) = entries.next_entry().await.context("Failed to read entry")? {
+            if entry.path().is_dir() {
+                if let Some(instance_id) = entry.file_name().to_str() {
+                    // Initialize each instance based on directories found
+                    instances.insert(
+                        instance_id.to_owned(),
+                        Instance::default(instance_id, &HashMap::new())
+                            .await
+                            .context(format!("Failed to initialize instance {}", instance_id))?,
+                    );
+                }
+            }
+        }
 
         let containers = docker
             .list_containers(Some(ListContainersOptions::<String> {
@@ -241,45 +265,46 @@ impl Instance {
                 ..Default::default()
             }))
             .await
-            .map_err(AnyhowError::from)?;
+            .context("Failed to list containers")?;
 
         for container in containers {
-            let container_id = container
-                .id
-                .as_ref()
-                .ok_or_else(|| AnyhowError::msg("Container ID not found"))?;
+            let container_id = container.id.as_ref().context("Container ID not found")?;
             let container_details = docker
                 .inspect_container(container_id, Some(InspectContainerOptions { size: false }))
                 .await
-                .map_err(AnyhowError::from)?;
+                .context(format!("Failed to inspect container {}", container_id))?;
 
             if let Some(network_settings) = &container_details.network_settings {
                 if let Some(networks) = &network_settings.networks {
                     if !networks.contains_key(network_name) {
                         continue;
                     }
-                } else {
-                    continue;
                 }
-            } else {
-                continue;
             }
 
             if let Some(config) = &container_details.config {
                 if let Some(labels) = &config.labels {
                     if let Some(instance_label) = labels.get("instance") {
-                        labels_map
-                            .entry(instance_label.clone())
-                            .or_insert_with(|| labels.clone());
+                        // Only add containers to instances if the instance_id was previously identified in the directories
+                        if instances.contains_key(instance_label) {
+                            let container_status = container.state.unwrap_or_default();
+                            let container_image = container.image.unwrap_or_default();
+
+                            let instance = instances.get_mut(instance_label).unwrap(); // Safe unwrap due to previous check
+
+                            instance.containers.push(InstanceContainer {
+                                container_id: container_id.to_string(),
+                                container_status: crate::ContainerStatus::from_str(
+                                    &container_status,
+                                ),
+                                container_image: crate::ContainerImage::from_str(&container_image),
+                            });
+
+                            instance.status = Self::get_status(&instance.containers);
+                        }
                     }
                 }
             }
-        }
-
-        let mut instances: HashMap<String, Instance> = HashMap::new();
-        for (instance_label, labels) in labels_map {
-            let instance = Instance::default(&instance_label, &labels).await?;
-            instances.insert(instance_label, instance);
         }
 
         info!("Successfully listed instances");
@@ -290,8 +315,10 @@ impl Instance {
     pub async fn list_all(
         docker: &Docker,
         network_name: &str,
-    ) -> Result<HashMap<String, Instance>, AnyhowError> {
-        Instance::list(docker, network_name).await
+    ) -> Result<HashMap<String, Instance>> {
+        Instance::list(docker, network_name)
+            .await
+            .context("Failed to list instances")
     }
 
     pub fn get_status(containers: &Vec<InstanceContainer>) -> crate::InstanceStatus {
@@ -311,15 +338,16 @@ impl Instance {
         }
     }
 
-    pub async fn start(
-        docker: &Docker,
-        network_name: &str,
-        instance_id: &str,
-    ) -> Result<(), AnyhowError> {
+    pub async fn start(docker: &Docker, network_name: &str, instance_id: &str) -> Result<()> {
         let instances = Self::list_all(docker, network_name).await?;
         if let Some(instance) = instances.get(instance_id) {
             for container in &instance.containers {
-                InstanceContainer::start(docker, &container.container_id).await?;
+                InstanceContainer::start(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to start container {}",
+                        &container.container_id
+                    ))?;
             }
         } else {
             return Err(AnyhowError::msg(format!(
@@ -330,27 +358,35 @@ impl Instance {
         Ok(())
     }
 
-    pub async fn start_all(docker: &Docker, network_name: &str) -> Result<(), AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn start_all(docker: &Docker, network_name: &str) -> Result<()> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
 
         for (_, instance) in instances {
             for container in &instance.containers {
-                InstanceContainer::start(docker, &container.container_id).await?;
+                InstanceContainer::start(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to start container {}",
+                        &container.container_id
+                    ))?;
             }
         }
 
         Ok(())
     }
 
-    pub async fn stop(
-        docker: &Docker,
-        network_name: &str,
-        instance_id: &str,
-    ) -> Result<(), AnyhowError> {
+    pub async fn stop(docker: &Docker, network_name: &str, instance_id: &str) -> Result<()> {
         let instances = Self::list_all(docker, network_name).await?;
         if let Some(instance) = instances.get(instance_id) {
             for container in &instance.containers {
-                InstanceContainer::stop(docker, &container.container_id).await?;
+                InstanceContainer::stop(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to stop container {}",
+                        &container.container_id
+                    ))?;
             }
         } else {
             return Err(AnyhowError::msg(format!(
@@ -361,27 +397,37 @@ impl Instance {
         Ok(())
     }
 
-    pub async fn stop_all(docker: &Docker, network_name: &str) -> Result<(), AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn stop_all(docker: &Docker, network_name: &str) -> Result<()> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
 
         for (_, instance) in instances {
             for container in &instance.containers {
-                InstanceContainer::stop(docker, &container.container_id).await?;
+                InstanceContainer::stop(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to stop container {}",
+                        &container.container_id
+                    ))?;
             }
         }
 
         Ok(())
     }
 
-    pub async fn restart(
-        docker: &Docker,
-        network_name: &str,
-        instance_id: &str,
-    ) -> Result<(), AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn restart(docker: &Docker, network_name: &str, instance_id: &str) -> Result<()> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
         if let Some(instance) = instances.get(instance_id) {
             for container in &instance.containers {
-                InstanceContainer::restart(docker, &container.container_id).await?;
+                InstanceContainer::restart(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to restart container {}",
+                        &container.container_id
+                    ))?;
             }
         } else {
             return Err(AnyhowError::msg(format!(
@@ -392,27 +438,37 @@ impl Instance {
         Ok(())
     }
 
-    pub async fn restart_all(docker: &Docker, network_name: &str) -> Result<(), AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn restart_all(docker: &Docker, network_name: &str) -> Result<()> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
 
         for (_, instance) in instances {
             for container in &instance.containers {
-                InstanceContainer::restart(docker, &container.container_id).await?;
+                InstanceContainer::restart(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to restart container {}",
+                        &container.container_id
+                    ))?;
             }
         }
 
         Ok(())
     }
 
-    pub async fn delete(
-        docker: &Docker,
-        network_name: &str,
-        instance_id: &str,
-    ) -> Result<(), AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn delete(docker: &Docker, network_name: &str, instance_id: &str) -> Result<()> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
         if let Some(instance) = instances.get(instance_id) {
             for container in &instance.containers {
-                InstanceContainer::delete(docker, &container.container_id).await?;
+                InstanceContainer::delete(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to delete container {}",
+                        &container.container_id
+                    ))?;
             }
         } else {
             return Err(AnyhowError::msg(format!(
@@ -423,12 +479,19 @@ impl Instance {
         Ok(())
     }
 
-    pub async fn delete_all(docker: &Docker, network_name: &str) -> Result<(), AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn delete_all(docker: &Docker, network_name: &str) -> Result<()> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
 
         for (_, instance) in instances {
             for container in &instance.containers {
-                InstanceContainer::delete(docker, &container.container_id).await?;
+                InstanceContainer::delete(docker, &container.container_id)
+                    .await
+                    .context(format!(
+                        "Failed to delete container {}",
+                        &container.container_id
+                    ))?;
             }
         }
 
@@ -441,8 +504,10 @@ impl Instance {
         docker: &Docker,
         network_name: &str,
         instance_id: &str,
-    ) -> Result<Instance, AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    ) -> Result<Instance> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
         if let Some(instance) = instances.get(instance_id) {
             Ok(instance.clone())
         } else {
@@ -453,39 +518,36 @@ impl Instance {
         }
     }
 
-    pub async fn inspect_all(
-        docker: &Docker,
-        network_name: &str,
-    ) -> Result<Vec<Instance>, AnyhowError> {
-        let instances = Self::list_all(docker, network_name).await?;
+    pub async fn inspect_all(docker: &Docker, network_name: &str) -> Result<Vec<Instance>> {
+        let instances = Self::list_all(docker, network_name)
+            .await
+            .context("Failed to list instances")?;
         Ok(instances.values().cloned().collect())
     }
 }
 
-pub async fn purge_instances(instance: InstanceSelection) -> Result<(), AnyhowError> {
-    let config = read_or_create_config().await?;
-    let home_dir = dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
+pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
+    let config = read_or_create_config()
+        .await
+        .context("Failed to read config")?;
+    let home_dir = dirs::home_dir().context("Failed to find home directory")?;
     let config_dir = home_dir.join(&config.custom_root);
 
     match instance {
         InstanceSelection::All => {
             let p = &config_dir;
-            let path = p
-                .to_str()
-                .ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
-            fs::remove_dir_all(&path).await.map_err(|err| {
-                AnyhowError::msg(format!("Error removing directory: {}: {}", path, err))
-            })?;
+            let path = p.to_str().context("Instance directory not found")?;
+            fs::remove_dir_all(&path)
+                .await
+                .context(format!("Error removing directory: {}", path))?;
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
             let p = &config_dir.join(&instance_uuid);
-            let path = p
-                .to_str()
-                .ok_or_else(|| AnyhowError::msg("Config directory not found"))?;
-            fs::remove_dir_all(&path).await.map_err(|err| {
-                AnyhowError::msg(format!("Error removing directory: {}: {}", path, err))
-            })?;
+            let path = p.to_str().context("Instance directory not found")?;
+            fs::remove_dir_all(&path)
+                .await
+                .context(format!("Error removing directory: {}", path))?;
             Ok(())
         }
     }

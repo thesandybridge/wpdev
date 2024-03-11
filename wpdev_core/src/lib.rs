@@ -83,14 +83,27 @@ impl ContainerImage {
         }
     }
 
-    pub fn from_string(image: &str) -> Option<Self> {
+    pub fn from_str(image: &str) -> Self {
         match image {
-            "adminer" => Some(ContainerImage::Adminer),
-            "mysql" => Some(ContainerImage::MySQL),
-            "nginx" => Some(ContainerImage::Nginx),
-            "wordpress" => Some(ContainerImage::Wordpress),
-            "unknown" => Some(ContainerImage::Unknown),
-            _ => None,
+            "adminer" => ContainerImage::Adminer,
+            "mysql" => ContainerImage::MySQL,
+            "nginx" => ContainerImage::Nginx,
+            "wordpress" => ContainerImage::Wordpress,
+            _ => ContainerImage::Unknown,
+        }
+    }
+}
+
+impl ContainerStatus {
+    pub fn from_str(status: &str) -> Self {
+        match status {
+            "running" => ContainerStatus::Running,
+            "stopped" => ContainerStatus::Stopped,
+            "restarting" => ContainerStatus::Restarting,
+            "paused" => ContainerStatus::Paused,
+            "exited" => ContainerStatus::Exited,
+            "dead" => ContainerStatus::Dead,
+            _ => ContainerStatus::Unknown,
         }
     }
 }

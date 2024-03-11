@@ -237,8 +237,7 @@ pub async fn handle_container(
 
     Ok(InstanceContainer {
         container_id: container_id.to_string(),
-        container_image: crate::ContainerImage::from_string(&container_image_label)
-            .unwrap_or(crate::ContainerImage::Unknown),
+        container_image: crate::ContainerImage::from_str(&container_image_label),
         container_status,
     })
 }
