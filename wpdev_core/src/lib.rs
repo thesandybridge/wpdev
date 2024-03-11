@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 pub mod config;
 pub mod docker;
@@ -59,6 +60,18 @@ pub enum ContainerImage {
     Unknown,
 }
 
+impl fmt::Display for ContainerImage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContainerImage::MySQL => write!(f, "MySQL"),
+            ContainerImage::Wordpress => write!(f, "Wordpress"),
+            ContainerImage::Nginx => write!(f, "Nginx"),
+            ContainerImage::Adminer => write!(f, "Adminer"),
+            ContainerImage::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
 impl ContainerImage {
     pub fn to_string(&self) -> String {
         match self {
@@ -82,7 +95,7 @@ impl ContainerImage {
     }
 }
 
-pub type ContainerInfo = (ContainerOptions, &'static str);
+pub type ContainerInfo = (ContainerOperation, &'static str);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum InstanceStatus {

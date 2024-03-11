@@ -2,7 +2,6 @@ use bollard::image::{CreateImageOptions, ListImagesOptions};
 use bollard::network::{CreateNetworkOptions, ListNetworksOptions};
 use bollard::Docker;
 use futures::stream::StreamExt;
-use log::{error, info};
 use std::collections::HashMap;
 use std::path::PathBuf;
 

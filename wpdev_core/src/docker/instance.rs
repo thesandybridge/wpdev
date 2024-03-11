@@ -196,14 +196,14 @@ impl Instance {
 
         config::generate_wpcli_config(&config, instance_label, &home_dir).await?;
 
-        let containers_to_create: Vec<crate::ContainerInfo> = vec![
+        let containers = vec![
             (mysql_options, "mysql"),
             (wordpress_options, "wordpress"),
             (nginx_options, "nginx"),
             (adminer_options, "adminer"),
         ];
 
-        for (options, container_type_str) in containers_to_create {
+        for (container, container_type_str) in containers {
             let container_image = match container_type_str {
                 "mysql" => crate::ContainerImage::MySQL,
                 "wordpress" => crate::ContainerImage::Wordpress,
@@ -212,17 +212,15 @@ impl Instance {
                 _ => crate::ContainerImage::Unknown,
             };
 
-            let (container_id, container_status) =
-                InstanceContainer::new(docker, options, container_image, &mut container_ids)
-                    .await?;
+            let (container_id, container_status) = container;
 
-            let container = InstanceContainer {
+            let instance_container = InstanceContainer {
                 container_id: container_id.clone(),
                 container_status,
                 container_image,
             };
 
-            instance.containers.push(container);
+            instance.containers.push(instance_container);
         }
 
         instance.status = Self::get_status(&instance.containers);
@@ -294,7 +292,6 @@ impl Instance {
         docker: &Docker,
         network_name: &str,
     ) -> Result<HashMap<String, Instance>, AnyhowError> {
-        // Directly call the refactored `list` method.
         Instance::list(docker, network_name).await
     }
 

@@ -1,4 +1,5 @@
 use crate::config;
+use crate::docker::container;
 use crate::utils;
 use anyhow::{Error as AnyhowError, Result};
 use bollard::container::{Config, CreateContainerOptions};
@@ -16,7 +17,7 @@ pub async fn configure_container(
     user: Option<String>,
     volume_binding: Option<(Option<PathBuf>, &str)>,
     port: Option<u32>,
-) -> Result<()> {
+) -> Result<(String, crate::ContainerStatus)> {
     let docker = Docker::connect_with_defaults()?;
     let config_dir = instance_path.join(&container_image.to_string());
     let path = utils::create_path(&config_dir).await?;
@@ -62,14 +63,48 @@ pub async fn configure_container(
     }
 
     let options = CreateContainerOptions {
-        name: format!("{:?}-{:?}", instance_label, container_image),
+        name: format!("{}-{}", instance_label, container_image),
         platform: None,
     };
 
-    docker
+    let container_ids = &mut Vec::new();
+
+    match docker
         .create_container(Some(options), container_config)
-        .await?;
-    Ok(())
+        .await
+    {
+        Ok(response) => {
+            let container_id = response.id;
+            container_ids.push(container_id.clone());
+            println!(
+                "{} container successfully created: {:?}",
+                container_image.to_string(),
+                container_id
+            );
+
+            match container::InstanceContainer::get_status(&docker, &container_id).await {
+                Ok(status) => Ok((
+                    container_id,
+                    status.unwrap_or(crate::ContainerStatus::Unknown),
+                )),
+                Err(err) => {
+                    println!(
+                        "Failed to fetch status for container {}: {:?}",
+                        container_id, err
+                    );
+                    Err(err.into())
+                }
+            }
+        }
+        Err(err) => {
+            println!(
+                "Error creating {} container: {:?}",
+                container_image.to_string(),
+                err
+            );
+            Err(err.into())
+        }
+    }
 }
 
 pub async fn configure_wordpress_container(
@@ -77,8 +112,8 @@ pub async fn configure_wordpress_container(
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
     env_vars: &crate::EnvVars,
-) -> Result<()> {
-    configure_container(
+) -> Result<(String, crate::ContainerStatus)> {
+    let (ids, status) = configure_container(
         instance_label,
         instance_path,
         crate::ContainerImage::Wordpress,
@@ -89,7 +124,7 @@ pub async fn configure_wordpress_container(
         None,
     )
     .await?;
-    Ok(())
+    Ok((ids, status))
 }
 
 pub async fn configure_mysql_container(
@@ -97,8 +132,8 @@ pub async fn configure_mysql_container(
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
     env_vars: &crate::EnvVars,
-) -> Result<()> {
-    configure_container(
+) -> Result<(String, crate::ContainerStatus)> {
+    let (ids, status) = configure_container(
         instance_label,
         instance_path,
         crate::ContainerImage::MySQL,
@@ -109,7 +144,7 @@ pub async fn configure_mysql_container(
         None,
     )
     .await?;
-    Ok(())
+    Ok((ids, status))
 }
 
 pub async fn configure_adminer_container(
@@ -118,8 +153,8 @@ pub async fn configure_adminer_container(
     labels: &HashMap<String, String>,
     env_vars: &crate::EnvVars,
     adminer_port: u32,
-) -> Result<()> {
-    configure_container(
+) -> Result<(String, crate::ContainerStatus)> {
+    let (ids, status) = configure_container(
         instance_label,
         instance_path,
         crate::ContainerImage::Adminer,
@@ -130,7 +165,7 @@ pub async fn configure_adminer_container(
         Some(adminer_port),
     )
     .await?;
-    Ok(())
+    Ok((ids, status))
 }
 
 pub async fn configure_nginx_container(
@@ -138,7 +173,7 @@ pub async fn configure_nginx_container(
     instance_label: &str,
     labels: &HashMap<String, String>,
     nginx_port: u32,
-) -> Result<()> {
+) -> Result<(String, crate::ContainerStatus)> {
     let nginx_config_path = config::generate_nginx_config(
         instance_label,
         nginx_port,
@@ -155,7 +190,7 @@ pub async fn configure_nginx_container(
         instance_path,
     )
     .await?;
-    configure_container(
+    let (ids, status) = configure_container(
         instance_label,
         instance_path,
         crate::ContainerImage::Nginx,
@@ -167,5 +202,5 @@ pub async fn configure_nginx_container(
     )
     .await?;
 
-    Ok(())
+    Ok((ids, status))
 }

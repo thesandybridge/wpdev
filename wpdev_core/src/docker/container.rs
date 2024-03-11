@@ -17,7 +17,6 @@ pub struct InstanceContainer {
 impl InstanceContainer {
     pub async fn new(
         docker: &Docker,
-        config: Config<String>,
         container_image: crate::ContainerImage,
         container_ids: &mut Vec<String>,
     ) -> Result<(String, crate::ContainerStatus), AnyhowError> {
@@ -25,6 +24,11 @@ impl InstanceContainer {
         let options = CreateContainerOptions {
             name: name.clone(),
             platform: None,
+        };
+
+        let config = Config {
+            image: Some(container_image.to_string()),
+            ..Default::default()
         };
 
         match docker.create_container(Some(options), config).await {

@@ -2948,11 +2948,11 @@ name = "wpdev_cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bollard",
  "clap",
  "log",
  "prettytable-rs",
  "serde_json",
- "shiplift",
  "spinners",
  "tokio",
  "uuid",
