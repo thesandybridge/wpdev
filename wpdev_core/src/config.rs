@@ -2,6 +2,7 @@ use bollard::image::{CreateImageOptions, ListImagesOptions};
 use bollard::network::CreateNetworkOptions;
 use bollard::Docker;
 use futures::stream::StreamExt;
+use log::info;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -359,6 +360,54 @@ pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<Instan
         "Failed to parse instance data from file at {:?}",
         instance_dir
     ))?;
+
+    Ok(instance_data)
+}
+
+pub async fn parse_instance_data(
+    env_vars: &crate::EnvVars,
+    nginx_port: &u32,
+    adminer_port: &u32,
+    config: &crate::AppConfig,
+    home_dir: &PathBuf,
+    instance_label: &str,
+) -> Result<InstanceData> {
+    let instance_dir = home_dir.join(format!(
+        "{}/{}-{}/instance.toml",
+        &config.custom_root,
+        crate::NETWORK_NAME,
+        instance_label
+    ));
+
+    fn extract_value(vars: &Vec<String>, key: &str) -> String {
+        vars.iter()
+            .find_map(|s| {
+                let parts: Vec<&str> = s.splitn(2, '=').collect();
+                if parts.len() == 2 && parts[0] == key {
+                    Some(parts[1].to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "defaultValue".to_string())
+    }
+
+    let instance_data = InstanceData {
+        admin_user: extract_value(&env_vars.wordpress, "WORDPRESS_DB_USER"),
+        admin_password: extract_value(&env_vars.wordpress, "WORDPRESS_DB_PASSWORD"),
+        admin_email: "admin@example.com".to_string(),
+        site_title: "My Wordpress Site".to_string(),
+        site_url: format!("{}:{}", config.site_url, &nginx_port),
+        adminer_url: format!("{}:{}", config.adminer_url, &adminer_port),
+        adminer_user: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_USERNAME"),
+        adminer_password: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_PASSWORD"),
+        network_name: format!("{}-{}", crate::NETWORK_NAME, instance_label),
+        nginx_port: *nginx_port,
+        adminer_port: *adminer_port,
+    };
+
+    fs::write(&instance_dir, toml::to_string(&instance_data)?).await?;
+    info!("Instance data written to {:?}", instance_dir);
 
     Ok(instance_data)
 }
