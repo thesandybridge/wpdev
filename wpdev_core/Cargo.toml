@@ -10,6 +10,7 @@ name = "wpdev_core"
 
 [dependencies]
 anyhow = "1.0.75"
+bollard = "0.16.0"
 config = "0.13.4"
 dirs = "5.0.1"
 futures = "0.3.29"

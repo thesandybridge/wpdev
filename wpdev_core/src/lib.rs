@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use shiplift::builder::ContainerOptions;
 use std::collections::HashMap;
+use std::fmt;
 
 pub mod config;
 pub mod docker;
@@ -51,6 +51,22 @@ pub enum ContainerStatus {
     Deleted,
 }
 
+impl ContainerStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            ContainerStatus::Running => "running".to_string(),
+            ContainerStatus::Stopped => "stopped".to_string(),
+            ContainerStatus::Restarting => "restarting".to_string(),
+            ContainerStatus::Paused => "paused".to_string(),
+            ContainerStatus::Exited => "exited".to_string(),
+            ContainerStatus::Dead => "dead".to_string(),
+            ContainerStatus::Unknown => "unknown".to_string(),
+            ContainerStatus::NotFound => "not found".to_string(),
+            ContainerStatus::Deleted => "deleted".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ContainerImage {
     Adminer,
@@ -58,6 +74,18 @@ pub enum ContainerImage {
     Nginx,
     Wordpress,
     Unknown,
+}
+
+impl fmt::Display for ContainerImage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContainerImage::MySQL => write!(f, "MySQL"),
+            ContainerImage::Wordpress => write!(f, "Wordpress"),
+            ContainerImage::Nginx => write!(f, "Nginx"),
+            ContainerImage::Adminer => write!(f, "Adminer"),
+            ContainerImage::Unknown => write!(f, "Unknown"),
+        }
+    }
 }
 
 impl ContainerImage {
@@ -71,19 +99,32 @@ impl ContainerImage {
         }
     }
 
-    pub fn from_string(image: &str) -> Option<Self> {
+    pub fn from_str(image: &str) -> Self {
         match image {
-            "adminer" => Some(ContainerImage::Adminer),
-            "mysql" => Some(ContainerImage::MySQL),
-            "nginx" => Some(ContainerImage::Nginx),
-            "wordpress" => Some(ContainerImage::Wordpress),
-            "unknown" => Some(ContainerImage::Unknown),
-            _ => None,
+            "adminer" => ContainerImage::Adminer,
+            "mysql" => ContainerImage::MySQL,
+            "nginx" => ContainerImage::Nginx,
+            "wordpress" => ContainerImage::Wordpress,
+            _ => ContainerImage::Unknown,
         }
     }
 }
 
-pub type ContainerInfo = (ContainerOptions, &'static str);
+impl ContainerStatus {
+    pub fn from_str(status: &str) -> Self {
+        match status {
+            "running" => ContainerStatus::Running,
+            "stopped" => ContainerStatus::Stopped,
+            "restarting" => ContainerStatus::Restarting,
+            "paused" => ContainerStatus::Paused,
+            "exited" => ContainerStatus::Exited,
+            "dead" => ContainerStatus::Dead,
+            _ => ContainerStatus::Unknown,
+        }
+    }
+}
+
+pub type ContainerInfo = (ContainerOperation, &'static str);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum InstanceStatus {

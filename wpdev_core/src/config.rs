@@ -1,32 +1,46 @@
+use bollard::image::{CreateImageOptions, ListImagesOptions};
+use bollard::network::CreateNetworkOptions;
+use bollard::Docker;
 use futures::stream::StreamExt;
-use log::{error, info};
-use shiplift::NetworkCreateOptions;
-use shiplift::{Docker, ImageListOptions, PullOptions};
+use log::info;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use dirs;
 
-use anyhow::{Error as AnyhowError, Result};
+use anyhow::{Context, Error as AnyhowError, Result};
 use tokio::fs::{self};
 
-use crate::utils;
+use crate::docker::instance::InstanceData;
+use crate::{utils, ContainerImage};
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
-    let config_dir = dirs::config_dir().unwrap().join("wpdev");
-    fs::create_dir_all(&config_dir).await?;
+    let config_dir =
+        dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Failed to find config directory"))?;
+    let config_dir = config_dir.join("wpdev");
+    fs::create_dir_all(&config_dir)
+        .await
+        .context("Failed to create config directory")?;
 
     let config_path = config_dir.join("config.toml");
 
-    if config_path.exists() {
-        let contents = fs::read_to_string(&config_path).await?;
-        let config: crate::AppConfig = toml::from_str(&contents)?;
-        Ok(config)
-    } else {
-        let config = crate::AppConfig::default();
-        let toml = toml::to_string(&config)?;
-        fs::write(&config_path, toml).await?;
-        Ok(config)
+    match fs::metadata(&config_path).await {
+        Ok(_) => {
+            let contents = fs::read_to_string(&config_path)
+                .await
+                .context("Failed to read config file")?;
+            let config: crate::AppConfig =
+                toml::from_str(&contents).context("Failed to parse config file")?;
+            Ok(config)
+        }
+        Err(_) => {
+            let config = crate::AppConfig::default();
+            let toml = toml::to_string(&config).context("Failed to serialize default config")?;
+            fs::write(&config_path, toml)
+                .await
+                .context("Failed to write default config file")?;
+            Ok(config)
+        }
     }
 }
 
@@ -41,16 +55,18 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
 /// ```
 /// let image_exists = image_exists("wordpress:latest").await;
 /// ```
-pub async fn image_exists(image_name: &str) -> bool {
-    let docker = Docker::new();
-    let options = ImageListOptions::default();
-    let images = docker.images().list(&options).await.unwrap();
-    images.iter().any(|image| {
+pub async fn image_exists(image_name: &str) -> Result<bool> {
+    let docker = Docker::connect_with_defaults()?;
+    let options = Some(ListImagesOptions::<String> {
+        ..Default::default()
+    });
+    let images = docker.list_images(options).await?;
+    Ok(images.iter().any(|image| {
         image
             .repo_tags
             .iter()
-            .any(|tag| tag.contains(&image_name.to_string())) // Convert image_name to String
-    })
+            .any(|tag| tag.contains(&image_name.to_string()))
+    }))
 }
 
 /// Pull a Docker image if it does not already exist locally.
@@ -73,23 +89,24 @@ pub async fn image_exists(image_name: &str) -> bool {
 /// # Examples
 ///
 /// ```
-/// pull_docker_image_if_not_exists("wordpress:latest").await;
+/// pull_docker_image_if_not_exists("wordpress:latest").await?;
 /// ```
-async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<(), shiplift::errors::Error> {
-    if !image_exists(image_name).await {
-        let docker = Docker::new();
-        let mut pull_options = PullOptions::builder();
-        pull_options.image(image_name);
-        let mut pull_stream = docker.images().pull(&pull_options.build());
+async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
+    let image = image_exists(image_name).await?;
+    if !image {
+        let docker = Docker::connect_with_defaults()?;
+        let options = CreateImageOptions {
+            from_image: image_name,
+            ..Default::default()
+        };
+        let mut stream = docker.create_image(Some(options), None, None);
 
         let mut success = false;
         let mut error_message = None;
 
-        // Process each event in the pull stream
-        while let Some(result) = pull_stream.next().await {
+        while let Some(result) = stream.next().await {
             match result {
                 Ok(_) => {
-                    // Image successfully pulled
                     success = true;
                 }
                 Err(err) => {
@@ -134,28 +151,18 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
 /// * `network_name` - name of the network
 pub async fn create_network_if_not_exists(
     docker: &Docker,
-    network_name: &str,
-) -> Result<(), shiplift::Error> {
-    let networks = docker.networks().list(&Default::default()).await?;
-    if networks.iter().any(|network| network.name == network_name) {
-        // Network already exists
-        info!("Network '{}' already exists, skipping...", network_name);
-        Ok(())
-    } else {
-        // Create network
-        let network_options = NetworkCreateOptions::builder(network_name).build();
-
-        match docker.networks().create(&network_options).await {
-            Ok(container) => {
-                info!("Wordpress network successfully created: {:?}", container);
-                Ok(())
-            }
-            Err(err) => {
-                error!("Error creating network '{}': {:?}", network_name, err);
-                Err(err)
-            }
-        }
-    }
+    network_prefix: &str,
+    id: &str,
+) -> Result<()> {
+    let network_name = format!("{}-{}", network_prefix, id);
+    let options = CreateNetworkOptions {
+        name: network_name,
+        driver: "bridge".to_string(),
+        check_duplicate: true,
+        ..Default::default()
+    };
+    docker.create_network(options).await?;
+    Ok(())
 }
 
 fn merge_env_vars(
@@ -189,7 +196,7 @@ pub async fn initialize_env_vars(
         ("MYSQL_PORT".to_string(), "3306".to_string()),
         (
             "ADMINER_DEFAULT_SERVER".to_string(),
-            format!("{}-mysql", instance_label).to_string(),
+            format!("{}-{}", instance_label, ContainerImage::MySQL.to_string()).to_string(),
         ),
         (
             "ADMINER_DEFAULT_USERNAME".to_string(),
@@ -215,7 +222,7 @@ pub async fn initialize_env_vars(
     let default_wordpress_vars = HashMap::from([
         (
             "WORDPRESS_DB_HOST".to_string(),
-            format!("{}-mysql", instance_label).to_string(),
+            format!("{}-{}", instance_label, ContainerImage::MySQL.to_string()).to_string(),
         ),
         ("WORDPRESS_DB_USER".to_string(), "wordpress".to_string()),
         ("WORDPRESS_DB_PASSWORD".to_string(), "password".to_string()),
@@ -289,9 +296,14 @@ pub async fn generate_wpcli_config(
     instance_label: &str,
     home_dir: &PathBuf,
 ) -> Result<(), AnyhowError> {
-    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
+    let instance_dir = home_dir.join(format!(
+        "{}/{}-{}/",
+        &config.custom_root,
+        crate::NETWORK_NAME,
+        instance_label
+    ));
     let wpcli_yml = format!(
-        r#"path: app
+        r#"path: wordpress
 require:
   - wp-cli.local.php
         "#,
@@ -314,7 +326,6 @@ define('WP_DEBUG', false);
             .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
     );
 
-    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
     utils::create_path(&instance_dir).await?;
     let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
     let wpcli_php_path = instance_dir.join("wp-cli.local.php");
@@ -322,4 +333,81 @@ define('WP_DEBUG', false);
     fs::write(&wpcli_php_path, wpcli_php).await?;
 
     Ok(())
+}
+
+pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<InstanceData> {
+    let config = read_or_create_config()
+        .await
+        .context("Failed to read config")?;
+    let home_dir = dirs::home_dir().context("Failed to find home directory")?;
+    let instance_dir = home_dir
+        .join(&config.custom_root)
+        .join(format!("{}/instance.toml", instance_label));
+
+    if !instance_dir.exists() {
+        return Err(AnyhowError::msg(format!(
+            "Instance file not found at {:?}",
+            instance_dir
+        )));
+    }
+
+    let contents = fs::read_to_string(&instance_dir).await.context(format!(
+        "Failed to read instance file at {:?}",
+        instance_dir
+    ))?;
+
+    let instance_data: InstanceData = toml::from_str(&contents).context(format!(
+        "Failed to parse instance data from file at {:?}",
+        instance_dir
+    ))?;
+
+    Ok(instance_data)
+}
+
+pub async fn parse_instance_data(
+    env_vars: &crate::EnvVars,
+    nginx_port: &u32,
+    adminer_port: &u32,
+    config: &crate::AppConfig,
+    home_dir: &PathBuf,
+    instance_label: &str,
+) -> Result<InstanceData> {
+    let instance_dir = home_dir.join(format!(
+        "{}/{}-{}/instance.toml",
+        &config.custom_root,
+        crate::NETWORK_NAME,
+        instance_label
+    ));
+
+    fn extract_value(vars: &Vec<String>, key: &str) -> String {
+        vars.iter()
+            .find_map(|s| {
+                let parts: Vec<&str> = s.splitn(2, '=').collect();
+                if parts.len() == 2 && parts[0] == key {
+                    Some(parts[1].to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "defaultValue".to_string())
+    }
+
+    let instance_data = InstanceData {
+        admin_user: extract_value(&env_vars.wordpress, "WORDPRESS_DB_USER"),
+        admin_password: extract_value(&env_vars.wordpress, "WORDPRESS_DB_PASSWORD"),
+        admin_email: "admin@example.com".to_string(),
+        site_title: "My Wordpress Site".to_string(),
+        site_url: format!("{}:{}", config.site_url, &nginx_port),
+        adminer_url: format!("{}:{}", config.adminer_url, &adminer_port),
+        adminer_user: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_USERNAME"),
+        adminer_password: extract_value(&env_vars.adminer, "ADMINER_DEFAULT_PASSWORD"),
+        network_name: format!("{}-{}", crate::NETWORK_NAME, instance_label),
+        nginx_port: *nginx_port,
+        adminer_port: *adminer_port,
+    };
+
+    fs::write(&instance_dir, toml::to_string(&instance_data)?).await?;
+    info!("Instance data written to {:?}", instance_dir);
+
+    Ok(instance_data)
 }
