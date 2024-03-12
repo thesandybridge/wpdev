@@ -51,6 +51,22 @@ pub enum ContainerStatus {
     Deleted,
 }
 
+impl ContainerStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            ContainerStatus::Running => "running".to_string(),
+            ContainerStatus::Stopped => "stopped".to_string(),
+            ContainerStatus::Restarting => "restarting".to_string(),
+            ContainerStatus::Paused => "paused".to_string(),
+            ContainerStatus::Exited => "exited".to_string(),
+            ContainerStatus::Dead => "dead".to_string(),
+            ContainerStatus::Unknown => "unknown".to_string(),
+            ContainerStatus::NotFound => "not found".to_string(),
+            ContainerStatus::Deleted => "deleted".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ContainerImage {
     Adminer,

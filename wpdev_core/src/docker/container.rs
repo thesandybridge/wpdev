@@ -1,11 +1,15 @@
-use anyhow::{Error as AnyhowError, Result};
+use crate::utils;
+use anyhow::{Context, Error as AnyhowError, Result};
 use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
     StartContainerOptions, StopContainerOptions,
 };
+use bollard::models::{HostConfig, PortBinding};
 use bollard::Docker;
 use log::info;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceContainer {
@@ -16,36 +20,98 @@ pub struct InstanceContainer {
 
 impl InstanceContainer {
     pub async fn new(
-        docker: &Docker,
+        instance_label: &str,
+        instance_path: &PathBuf,
         container_image: crate::ContainerImage,
-        container_ids: &mut Vec<String>,
-    ) -> Result<(String, crate::ContainerStatus), AnyhowError> {
-        let name = format!("{}-container", container_image.to_string());
-        let options = CreateContainerOptions {
-            name: name.clone(),
-            platform: None,
-        };
+        labels: &HashMap<String, String>,
+        env_vars: Vec<String>,
+        user: Option<String>,
+        volume_binding: Option<(Option<PathBuf>, &str)>,
+        port: Option<(u32, u32)>,
+    ) -> Result<(String, crate::ContainerStatus)> {
+        let docker = Docker::connect_with_defaults()?;
+        let config_dir = instance_path.join(&container_image.to_string());
 
-        let config = Config {
-            image: Some(container_image.to_string()),
+        let path = utils::create_path(&config_dir)
+            .await
+            .context("Failed to create instance directory")?;
+        let path_str = path
+            .to_str()
+            .context("Failed to convert instance directory to string")?;
+
+        let container_labels = utils::create_labels(container_image.clone(), labels.clone());
+        let labels_view = container_labels.into_iter().collect();
+
+        let mut port_bindings = HashMap::new();
+        if let Some((host_port, container_port)) = port {
+            let port_key = format!("{}/tcp", container_port);
+            let binding = PortBinding {
+                host_ip: None,
+                host_port: Some(host_port.to_string()),
+            };
+            port_bindings.insert(port_key, Some(vec![binding]));
+        }
+
+        let host_config = HostConfig {
+            binds: match volume_binding {
+                Some((Some(config_path), container_path)) => {
+                    let config_path_str = config_path
+                        .to_str()
+                        .context("Failed to convert config path to string")?;
+                    Some(vec![format!("{}:{}", config_path_str, container_path)])
+                }
+                Some((None, container_path)) => {
+                    Some(vec![format!("{}:{}", path_str, container_path)])
+                }
+                None => None,
+            },
+            network_mode: Some(format!(
+                "{}-{}",
+                crate::NETWORK_NAME.to_string(),
+                instance_label
+            )),
+            port_bindings: if port_bindings.is_empty() {
+                None
+            } else {
+                Some(port_bindings)
+            },
             ..Default::default()
         };
 
-        match docker.create_container(Some(options), config).await {
+        let mut container_config = Config {
+            image: Some(container_image.to_string()),
+            env: Some(env_vars),
+            labels: Some(labels_view),
+            user,
+            host_config: Some(host_config),
+            ..Default::default()
+        };
+
+        if let Some((_, container_port)) = port {
+            let port_key = format!("{}/tcp", container_port);
+            let exposed_ports = HashMap::from([(port_key.clone(), HashMap::new())]);
+            container_config.exposed_ports = Some(exposed_ports);
+        }
+
+        let options = CreateContainerOptions {
+            name: format!("{}-{}", instance_label, container_image.to_string()),
+            platform: None,
+        };
+
+        match docker
+            .create_container(Some(options), container_config)
+            .await
+        {
             Ok(response) => {
                 let container_id = response.id;
-                container_ids.push(container_id.clone());
                 println!(
                     "{} container successfully created: {:?}",
                     container_image.to_string(),
                     container_id
                 );
 
-                match Self::get_status(docker, &container_id).await {
-                    Ok(status) => Ok((
-                        container_id,
-                        status.unwrap_or(crate::ContainerStatus::Unknown),
-                    )),
+                match Self::get_status(&docker, &container_id).await {
+                    Ok(status) => Ok((container_id, status)),
                     Err(err) => {
                         println!(
                             "Failed to fetch status for container {}: {:?}",
@@ -69,33 +135,21 @@ impl InstanceContainer {
     pub async fn get_status(
         docker: &Docker,
         container_id: &str,
-    ) -> Result<Option<crate::ContainerStatus>, AnyhowError> {
+    ) -> Result<crate::ContainerStatus, AnyhowError> {
         let container_info = docker
             .inspect_container(container_id, None)
             .await
-            .map_err(|err| AnyhowError::new(err))?;
-
-        let status = match container_info
-            .state
-            .as_ref()
-            .and_then(|state| state.status.as_ref())
-        {
+            .context("Failed to inspect container")?;
+        let status = match container_info.state.and_then(|state| state.status) {
             Some(bollard::models::ContainerStateStatusEnum::RUNNING) => {
                 crate::ContainerStatus::Running
             }
             Some(bollard::models::ContainerStateStatusEnum::EXITED) => {
                 crate::ContainerStatus::Stopped
             }
-            Some(bollard::models::ContainerStateStatusEnum::PAUSED) => {
-                crate::ContainerStatus::Paused
-            }
-            Some(bollard::models::ContainerStateStatusEnum::DEAD) => crate::ContainerStatus::Dead,
-            Some(bollard::models::ContainerStateStatusEnum::RESTARTING) => {
-                crate::ContainerStatus::Restarting
-            }
             _ => crate::ContainerStatus::Unknown,
         };
-        Ok(Some(status))
+        Ok(status)
     }
 
     pub async fn inspect(
@@ -169,8 +223,8 @@ pub async fn handle_container(
         .await
         .map_err(AnyhowError::from)?;
     let container_status = InstanceContainer::get_status(docker, container_id)
-        .await?
-        .unwrap_or(crate::ContainerStatus::Unknown);
+        .await
+        .context("Failed to get container status")?;
     let container_config = container_info
         .config
         .ok_or_else(|| AnyhowError::msg("Container config not found"))?;

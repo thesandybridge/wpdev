@@ -17,7 +17,7 @@ pub async fn create_instance(
         None => ContainerEnvVars::default(),
     };
 
-    match Instance::new(&docker, wpdev_core::NETWORK_NAME, &uuid, env_vars).await {
+    match Instance::new(&docker, &uuid, env_vars).await {
         Ok(instance) => Ok(serde_json::to_value(instance)?),
         Err(e) => Err(AnyhowError::from(e)),
     }

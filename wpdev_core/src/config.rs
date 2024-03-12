@@ -1,5 +1,5 @@
 use bollard::image::{CreateImageOptions, ListImagesOptions};
-use bollard::network::{CreateNetworkOptions, ListNetworksOptions};
+use bollard::network::CreateNetworkOptions;
 use bollard::Docker;
 use futures::stream::StreamExt;
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ use dirs;
 use anyhow::{Context, Error as AnyhowError, Result};
 use tokio::fs::{self};
 
+use crate::docker::instance::InstanceData;
 use crate::{utils, ContainerImage};
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
@@ -24,7 +25,6 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
 
     match fs::metadata(&config_path).await {
         Ok(_) => {
-            // File exists
             let contents = fs::read_to_string(&config_path)
                 .await
                 .context("Failed to read config file")?;
@@ -33,8 +33,7 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
             Ok(config)
         }
         Err(_) => {
-            // File does not exist, or other error which we treat as non-existent for creation
-            let config = crate::AppConfig::default(); // Ensure this default implementation exists
+            let config = crate::AppConfig::default();
             let toml = toml::to_string(&config).context("Failed to serialize default config")?;
             fs::write(&config_path, toml)
                 .await
@@ -104,11 +103,9 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
         let mut success = false;
         let mut error_message = None;
 
-        // Process each event in the pull stream
         while let Some(result) = stream.next().await {
             match result {
                 Ok(_) => {
-                    // Image successfully pulled
                     success = true;
                 }
                 Err(err) => {
@@ -153,26 +150,17 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
 /// * `network_name` - name of the network
 pub async fn create_network_if_not_exists(
     docker: &Docker,
-    network_name: Option<&str>,
+    network_prefix: &str,
+    id: &str,
 ) -> Result<()> {
-    let network_list_options = Some(ListNetworksOptions::<String> {
+    let network_name = format!("{}-{}", network_prefix, id);
+    let options = CreateNetworkOptions {
+        name: network_name,
+        driver: "bridge".to_string(),
+        check_duplicate: true,
         ..Default::default()
-    });
-    let networks = docker.list_networks(network_list_options).await?;
-    if !networks.iter().any(|network| {
-        network
-            .name
-            .as_ref()
-            .map(|name| name == network_name.unwrap_or("wpdev"))
-            .unwrap_or(false)
-    }) {
-        let options = CreateNetworkOptions {
-            name: network_name.unwrap_or("wpdev"),
-            driver: "bridge",
-            ..Default::default()
-        };
-        docker.create_network(options).await?;
-    }
+    };
+    docker.create_network(options).await?;
     Ok(())
 }
 
@@ -307,7 +295,12 @@ pub async fn generate_wpcli_config(
     instance_label: &str,
     home_dir: &PathBuf,
 ) -> Result<(), AnyhowError> {
-    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
+    let instance_dir = home_dir.join(format!(
+        "{}/{}-{}/",
+        &config.custom_root,
+        crate::NETWORK_NAME,
+        instance_label
+    ));
     let wpcli_yml = format!(
         r#"path: wordpress
 require:
@@ -332,7 +325,6 @@ define('WP_DEBUG', false);
             .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
     );
 
-    let instance_dir = home_dir.join(format!("{}/{}/", &config.custom_root, instance_label));
     utils::create_path(&instance_dir).await?;
     let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
     let wpcli_php_path = instance_dir.join("wp-cli.local.php");
@@ -340,4 +332,33 @@ define('WP_DEBUG', false);
     fs::write(&wpcli_php_path, wpcli_php).await?;
 
     Ok(())
+}
+
+pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<InstanceData> {
+    let config = read_or_create_config()
+        .await
+        .context("Failed to read config")?;
+    let home_dir = dirs::home_dir().context("Failed to find home directory")?;
+    let instance_dir = home_dir
+        .join(&config.custom_root)
+        .join(format!("{}/instance.toml", instance_label));
+
+    if !instance_dir.exists() {
+        return Err(AnyhowError::msg(format!(
+            "Instance file not found at {:?}",
+            instance_dir
+        )));
+    }
+
+    let contents = fs::read_to_string(&instance_dir).await.context(format!(
+        "Failed to read instance file at {:?}",
+        instance_dir
+    ))?;
+
+    let instance_data: InstanceData = toml::from_str(&contents).context(format!(
+        "Failed to parse instance data from file at {:?}",
+        instance_dir
+    ))?;
+
+    Ok(instance_data)
 }

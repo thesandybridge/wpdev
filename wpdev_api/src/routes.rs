@@ -25,7 +25,7 @@ pub async fn create_instance(
 
     let env_vars = env_vars.map_or(default_env_vars, |json| json.into_inner());
 
-    match Instance::new(&docker, wpdev_core::NETWORK_NAME, &uuid, env_vars).await {
+    match Instance::new(&docker, &uuid, env_vars).await {
         Ok(instance) => Ok(Json(instance)),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
