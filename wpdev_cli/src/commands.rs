@@ -3,8 +3,8 @@ use bollard::Docker;
 use serde_json::Value as Json;
 use uuid::Uuid;
 
+use wpdev_core::docker::container::ContainerEnvVars;
 use wpdev_core::docker::instance::Instance;
-use wpdev_core::ContainerEnvVars;
 
 pub async fn create_instance(
     env_vars_str: Option<&String>,

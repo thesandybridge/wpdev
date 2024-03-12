@@ -13,13 +13,15 @@ use crate::docker::config::{
     configure_adminer_container, configure_mysql_container, configure_nginx_container,
     configure_wordpress_container,
 };
-use crate::docker::container::InstanceContainer;
+use crate::docker::container::{
+    ContainerEnvVars, ContainerImage, ContainerStatus, InstanceContainer,
+};
 use crate::utils;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Instance {
     pub uuid: String,
-    pub status: crate::InstanceStatus,
+    pub status: InstanceStatus,
     pub containers: Vec<InstanceContainer>,
     pub nginx_port: u32,
     pub adminer_port: u32,
@@ -41,6 +43,47 @@ pub struct InstanceData {
     pub adminer_port: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum InstanceStatus {
+    Running,
+    Stopped,
+    Restarting,
+    Paused,
+    Exited,
+    Dead,
+    Unknown,
+    PartiallyRunning,
+}
+
+impl InstanceStatus {
+    pub async fn default(docker: &Docker, containers: &Vec<InstanceContainer>) -> Result<Self> {
+        let mut all_running = true;
+        let mut any_running = false;
+
+        for container in containers {
+            match InstanceContainer::get_status(docker, &container.container_id).await? {
+                ContainerStatus::Running => {
+                    any_running = true;
+                }
+                ContainerStatus::Stopped | ContainerStatus::Unknown => {
+                    all_running = false;
+                }
+                _ => {}
+            }
+        }
+
+        let overall_status = if all_running {
+            Self::Running
+        } else if any_running {
+            Self::PartiallyRunning
+        } else {
+            Self::Stopped
+        };
+
+        Ok(overall_status)
+    }
+}
+
 pub enum InstanceSelection {
     All,
     One(String),
@@ -50,7 +93,7 @@ impl Instance {
     pub async fn new(
         docker: &Docker,
         instance_label: &str,
-        user_env_vars: crate::ContainerEnvVars,
+        user_env_vars: ContainerEnvVars,
     ) -> Result<Self> {
         let config = config::read_or_create_config().await?;
         let home_dir =
@@ -112,7 +155,9 @@ impl Instance {
 
         let mut instance = Instance {
             uuid: format!("{}-{}", crate::NETWORK_NAME, instance_label.to_string()),
-            status: crate::InstanceStatus::default(),
+            status: InstanceStatus::default(&docker, &vec![])
+                .await
+                .context("Failed to get default status for instance containers")?,
             containers: Vec::new(),
             nginx_port,
             adminer_port,
@@ -130,11 +175,11 @@ impl Instance {
 
         for (container, container_type_str) in containers {
             let container_image = match container_type_str {
-                "mysql" => crate::ContainerImage::MySQL,
-                "wordpress" => crate::ContainerImage::Wordpress,
-                "nginx" => crate::ContainerImage::Nginx,
-                "adminer" => crate::ContainerImage::Adminer,
-                _ => crate::ContainerImage::Unknown,
+                "mysql" => ContainerImage::MySQL,
+                "wordpress" => ContainerImage::Wordpress,
+                "nginx" => ContainerImage::Nginx,
+                "adminer" => ContainerImage::Adminer,
+                _ => ContainerImage::Unknown,
             };
 
             let (container_id, container_status) = container;
@@ -148,7 +193,9 @@ impl Instance {
             instance.containers.push(instance_container);
         }
 
-        instance.status = Self::get_status(&instance.containers);
+        instance.status = InstanceStatus::default(&docker, &instance.containers)
+            .await
+            .context("Failed to get default status for instance containers")?;
 
         Ok(instance)
     }
@@ -178,20 +225,20 @@ impl Instance {
             .into_iter()
             .map(|container| {
                 let container_status =
-                    crate::ContainerStatus::from_str(&container.state.unwrap_or_default());
+                    ContainerStatus::from_str(&container.state.unwrap_or_default());
                 InstanceContainer {
                     container_id: container.id.unwrap_or_default(),
                     container_status,
-                    container_image: crate::ContainerImage::from_str(
-                        &container.image.unwrap_or_default(),
-                    ),
+                    container_image: ContainerImage::from_str(&container.image.unwrap_or_default()),
                 }
             })
             .collect();
 
         let instance = Instance {
             uuid: network_name.to_string(),
-            status: crate::InstanceStatus::default(),
+            status: InstanceStatus::default(&docker, &instance_containers)
+                .await
+                .context("Failed to get default status for instance containers")?,
             containers: instance_containers,
             nginx_port: instance_data.nginx_port,
             adminer_port: instance_data.adminer_port,
@@ -242,23 +289,6 @@ impl Instance {
             network_prefix
         );
         Ok(instances)
-    }
-
-    pub fn get_status(containers: &Vec<InstanceContainer>) -> crate::InstanceStatus {
-        let all_running = containers
-            .iter()
-            .all(|container| container.container_status == crate::ContainerStatus::Running);
-        let any_running = containers
-            .iter()
-            .any(|container| container.container_status == crate::ContainerStatus::Running);
-
-        info!("all_running: {}, any_running: {}", all_running, any_running);
-
-        match (all_running, any_running) {
-            (true, _) => crate::InstanceStatus::Running,
-            (false, true) => crate::InstanceStatus::PartiallyRunning,
-            (false, false) => crate::InstanceStatus::Stopped,
-        }
     }
 
     pub async fn start(docker: &Docker, network_name: &str, instance_id: &str) -> Result<()> {

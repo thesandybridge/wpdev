@@ -11,8 +11,9 @@ use dirs;
 use anyhow::{Context, Error as AnyhowError, Result};
 use tokio::fs::{self};
 
+use crate::docker::container::{ContainerEnvVars, ContainerImage, EnvVars};
 use crate::docker::instance::InstanceData;
-use crate::{utils, ContainerImage};
+use crate::utils;
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     let config_dir =
@@ -185,8 +186,8 @@ fn merge_env_vars(
 
 pub async fn initialize_env_vars(
     instance_label: &str,
-    user_env_vars: &crate::ContainerEnvVars,
-) -> Result<crate::EnvVars, AnyhowError> {
+    user_env_vars: &ContainerEnvVars,
+) -> Result<EnvVars, AnyhowError> {
     let default_adminer_vars = HashMap::from([
         ("ADMINER_DESIGN".to_string(), "nette".to_string()),
         (
@@ -236,7 +237,7 @@ pub async fn initialize_env_vars(
     let mysql_env_vars = merge_env_vars(default_mysql_vars, &None);
     let wordpress_env_vars = merge_env_vars(default_wordpress_vars, &user_env_vars.wordpress);
 
-    Ok(crate::EnvVars {
+    Ok(EnvVars {
         adminer: adminer_env_vars,
         mysql: mysql_env_vars,
         wordpress: wordpress_env_vars,
@@ -365,7 +366,7 @@ pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<Instan
 }
 
 pub async fn parse_instance_data(
-    env_vars: &crate::EnvVars,
+    env_vars: &EnvVars,
     nginx_port: &u32,
     adminer_port: &u32,
     config: &crate::AppConfig,

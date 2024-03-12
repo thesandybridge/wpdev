@@ -9,26 +9,141 @@ use bollard::Docker;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
+
+#[derive(Deserialize)]
+pub struct ContainerEnvVars {
+    pub wordpress: Option<HashMap<String, String>>,
+}
+
+impl Default for ContainerEnvVars {
+    fn default() -> Self {
+        ContainerEnvVars { wordpress: None }
+    }
+}
+
+pub struct EnvVars {
+    pub adminer: Vec<String>,
+    pub mysql: Vec<String>,
+    pub wordpress: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ContainerOperation {
+    Start,
+    Stop,
+    Restart,
+    Delete,
+    Inspect,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ContainerStatus {
+    Running,
+    Stopped,
+    Restarting,
+    Paused,
+    Exited,
+    Dead,
+    Unknown,
+    NotFound,
+    Deleted,
+}
+
+impl ContainerStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            ContainerStatus::Running => "running".to_string(),
+            ContainerStatus::Stopped => "stopped".to_string(),
+            ContainerStatus::Restarting => "restarting".to_string(),
+            ContainerStatus::Paused => "paused".to_string(),
+            ContainerStatus::Exited => "exited".to_string(),
+            ContainerStatus::Dead => "dead".to_string(),
+            ContainerStatus::Unknown => "unknown".to_string(),
+            ContainerStatus::NotFound => "not found".to_string(),
+            ContainerStatus::Deleted => "deleted".to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ContainerImage {
+    Adminer,
+    MySQL,
+    Nginx,
+    Wordpress,
+    Unknown,
+}
+
+impl fmt::Display for ContainerImage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContainerImage::MySQL => write!(f, "MySQL"),
+            ContainerImage::Wordpress => write!(f, "Wordpress"),
+            ContainerImage::Nginx => write!(f, "Nginx"),
+            ContainerImage::Adminer => write!(f, "Adminer"),
+            ContainerImage::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+impl ContainerImage {
+    pub fn to_string(&self) -> String {
+        match self {
+            ContainerImage::Adminer => "adminer".to_string(),
+            ContainerImage::MySQL => "mysql".to_string(),
+            ContainerImage::Nginx => "nginx".to_string(),
+            ContainerImage::Wordpress => "wordpress".to_string(),
+            ContainerImage::Unknown => "unknown".to_string(),
+        }
+    }
+
+    pub fn from_str(image: &str) -> Self {
+        match image {
+            "adminer" => ContainerImage::Adminer,
+            "mysql" => ContainerImage::MySQL,
+            "nginx" => ContainerImage::Nginx,
+            "wordpress" => ContainerImage::Wordpress,
+            _ => ContainerImage::Unknown,
+        }
+    }
+}
+
+impl ContainerStatus {
+    pub fn from_str(status: &str) -> Self {
+        match status {
+            "running" => ContainerStatus::Running,
+            "stopped" => ContainerStatus::Stopped,
+            "restarting" => ContainerStatus::Restarting,
+            "paused" => ContainerStatus::Paused,
+            "exited" => ContainerStatus::Exited,
+            "dead" => ContainerStatus::Dead,
+            _ => ContainerStatus::Unknown,
+        }
+    }
+}
+
+pub type ContainerInfo = (ContainerOperation, &'static str);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceContainer {
     pub container_id: String,
-    pub container_image: crate::ContainerImage,
-    pub container_status: crate::ContainerStatus,
+    pub container_image: ContainerImage,
+    pub container_status: ContainerStatus,
 }
 
 impl InstanceContainer {
     pub async fn new(
         instance_label: &str,
         instance_path: &PathBuf,
-        container_image: crate::ContainerImage,
+        container_image: ContainerImage,
         labels: &HashMap<String, String>,
         env_vars: Vec<String>,
         user: Option<String>,
         volume_binding: Option<(Option<PathBuf>, &str)>,
         port: Option<(u32, u32)>,
-    ) -> Result<(String, crate::ContainerStatus)> {
+    ) -> Result<(String, ContainerStatus)> {
         let docker = Docker::connect_with_defaults()?;
         let config_dir = instance_path.join(&container_image.to_string());
 
@@ -135,19 +250,15 @@ impl InstanceContainer {
     pub async fn get_status(
         docker: &Docker,
         container_id: &str,
-    ) -> Result<crate::ContainerStatus, AnyhowError> {
+    ) -> Result<ContainerStatus, AnyhowError> {
         let container_info = docker
             .inspect_container(container_id, None)
             .await
             .context("Failed to inspect container")?;
         let status = match container_info.state.and_then(|state| state.status) {
-            Some(bollard::models::ContainerStateStatusEnum::RUNNING) => {
-                crate::ContainerStatus::Running
-            }
-            Some(bollard::models::ContainerStateStatusEnum::EXITED) => {
-                crate::ContainerStatus::Stopped
-            }
-            _ => crate::ContainerStatus::Unknown,
+            Some(bollard::models::ContainerStateStatusEnum::RUNNING) => ContainerStatus::Running,
+            Some(bollard::models::ContainerStateStatusEnum::EXITED) => ContainerStatus::Stopped,
+            _ => ContainerStatus::Unknown,
         };
         Ok(status)
     }
@@ -159,7 +270,7 @@ impl InstanceContainer {
         handle_container(
             docker,
             &container_id.to_string(),
-            crate::ContainerOperation::Inspect,
+            ContainerOperation::Inspect,
         )
         .await
     }
@@ -168,24 +279,14 @@ impl InstanceContainer {
         docker: &Docker,
         container_id: &str,
     ) -> Result<InstanceContainer, AnyhowError> {
-        handle_container(
-            docker,
-            &container_id.to_string(),
-            crate::ContainerOperation::Start,
-        )
-        .await
+        handle_container(docker, &container_id.to_string(), ContainerOperation::Start).await
     }
 
     pub async fn stop(
         docker: &Docker,
         container_id: &str,
     ) -> Result<InstanceContainer, AnyhowError> {
-        handle_container(
-            docker,
-            &container_id.to_string(),
-            crate::ContainerOperation::Stop,
-        )
-        .await
+        handle_container(docker, &container_id.to_string(), ContainerOperation::Stop).await
     }
 
     pub async fn restart(
@@ -195,7 +296,7 @@ impl InstanceContainer {
         handle_container(
             docker,
             &container_id.to_string(),
-            crate::ContainerOperation::Restart,
+            ContainerOperation::Restart,
         )
         .await
     }
@@ -207,7 +308,7 @@ impl InstanceContainer {
         handle_container(
             docker,
             &container_id.to_string(),
-            crate::ContainerOperation::Delete,
+            ContainerOperation::Delete,
         )
         .await
     }
@@ -216,7 +317,7 @@ impl InstanceContainer {
 pub async fn handle_container(
     docker: &Docker,
     container_id: &str,
-    operation: crate::ContainerOperation,
+    operation: ContainerOperation,
 ) -> Result<InstanceContainer, AnyhowError> {
     let container_info = docker
         .inspect_container(container_id, None)
@@ -235,8 +336,8 @@ pub async fn handle_container(
         .unwrap_or_else(|| "Unknown".to_string());
 
     match operation {
-        crate::ContainerOperation::Start => {
-            if container_status != crate::ContainerStatus::Running {
+        ContainerOperation::Start => {
+            if container_status != ContainerStatus::Running {
                 docker
                     .start_container(container_id, None::<StartContainerOptions<String>>)
                     .await
@@ -249,8 +350,8 @@ pub async fn handle_container(
                 );
             }
         }
-        crate::ContainerOperation::Stop => {
-            if container_status == crate::ContainerStatus::Running {
+        ContainerOperation::Stop => {
+            if container_status == ContainerStatus::Running {
                 docker
                     .stop_container(container_id, None::<StopContainerOptions>)
                     .await
@@ -263,15 +364,15 @@ pub async fn handle_container(
                 );
             }
         }
-        crate::ContainerOperation::Restart => {
+        ContainerOperation::Restart => {
             docker
                 .restart_container(container_id, None::<RestartContainerOptions>)
                 .await
                 .map_err(AnyhowError::from)?;
             info!("{} container successfully restarted", container_id);
         }
-        crate::ContainerOperation::Delete => {
-            if container_status == crate::ContainerStatus::Running {
+        ContainerOperation::Delete => {
+            if container_status == ContainerStatus::Running {
                 docker
                     .stop_container(container_id, None::<StopContainerOptions>)
                     .await
@@ -283,7 +384,7 @@ pub async fn handle_container(
                 .map_err(AnyhowError::from)?;
             info!("{} container successfully deleted", container_id);
         }
-        crate::ContainerOperation::Inspect => {
+        ContainerOperation::Inspect => {
             // Inspection already occurred at the start; this is just to match the case
             info!("{} container successfully inspected", container_id);
         }
@@ -291,7 +392,7 @@ pub async fn handle_container(
 
     Ok(InstanceContainer {
         container_id: container_id.to_string(),
-        container_image: crate::ContainerImage::from_str(&container_image_label),
+        container_image: ContainerImage::from_str(&container_image_label),
         container_status,
     })
 }

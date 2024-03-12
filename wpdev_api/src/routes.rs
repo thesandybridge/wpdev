@@ -8,10 +8,9 @@ use rocket::serde::json::Json;
 use serde_json;
 use uuid::Uuid;
 
-use wpdev_core::docker::container::InstanceContainer;
 /// Internal dependencies
+use wpdev_core::docker::container::{ContainerEnvVars, InstanceContainer};
 use wpdev_core::docker::instance::Instance;
-use wpdev_core::ContainerEnvVars;
 
 #[post("/instances/create", format = "json", data = "<env_vars>")]
 pub async fn create_instance(

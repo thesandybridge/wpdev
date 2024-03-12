@@ -5,12 +5,14 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::docker::container::{ContainerImage, ContainerStatus, EnvVars};
+
 pub async fn configure_wordpress_container(
     instance_label: &str,
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
-    env_vars: &crate::EnvVars,
-) -> Result<(String, crate::ContainerStatus)> {
+    env_vars: &EnvVars,
+) -> Result<(String, ContainerStatus)> {
     let wordpress_config_dir = instance_path.join("wordpress");
     let wordpress_path = utils::create_path(&wordpress_config_dir)
         .await
@@ -18,7 +20,7 @@ pub async fn configure_wordpress_container(
     let (ids, status) = container::InstanceContainer::new(
         instance_label,
         instance_path,
-        crate::ContainerImage::Wordpress,
+        ContainerImage::Wordpress,
         labels,
         env_vars.wordpress.clone(),
         Some("1000:1000".to_string()),
@@ -33,8 +35,8 @@ pub async fn configure_mysql_container(
     instance_label: &str,
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
-    env_vars: &crate::EnvVars,
-) -> Result<(String, crate::ContainerStatus)> {
+    env_vars: &EnvVars,
+) -> Result<(String, ContainerStatus)> {
     let mysql_config_dir = instance_path.join("mysql");
     let mysql_socket_path = utils::create_path(&mysql_config_dir)
         .await
@@ -42,7 +44,7 @@ pub async fn configure_mysql_container(
     let (ids, status) = container::InstanceContainer::new(
         instance_label,
         instance_path,
-        crate::ContainerImage::MySQL,
+        ContainerImage::MySQL,
         labels,
         env_vars.mysql.clone(),
         Some("1000:1000".to_string()),
@@ -57,13 +59,13 @@ pub async fn configure_adminer_container(
     instance_label: &str,
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
-    env_vars: &crate::EnvVars,
+    env_vars: &EnvVars,
     adminer_port: u32,
-) -> Result<(String, crate::ContainerStatus)> {
+) -> Result<(String, ContainerStatus)> {
     let (ids, status) = container::InstanceContainer::new(
         instance_label,
         instance_path,
-        crate::ContainerImage::Adminer,
+        ContainerImage::Adminer,
         labels,
         env_vars.adminer.clone(),
         None,
@@ -79,19 +81,15 @@ pub async fn configure_nginx_container(
     instance_label: &str,
     labels: &HashMap<String, String>,
     nginx_port: u32,
-) -> Result<(String, crate::ContainerStatus)> {
+) -> Result<(String, ContainerStatus)> {
     let nginx_config_path = config::generate_nginx_config(
         instance_label,
         nginx_port,
+        &format!("{}-{}", instance_label, ContainerImage::Adminer.to_string()),
         &format!(
             "{}-{}",
             instance_label,
-            crate::ContainerImage::Adminer.to_string()
-        ),
-        &format!(
-            "{}-{}",
-            instance_label,
-            crate::ContainerImage::Wordpress.to_string()
+            ContainerImage::Wordpress.to_string()
         ),
         instance_path,
     )
@@ -99,7 +97,7 @@ pub async fn configure_nginx_container(
     let (ids, status) = container::InstanceContainer::new(
         instance_label,
         instance_path,
-        crate::ContainerImage::Nginx,
+        ContainerImage::Nginx,
         labels,
         Vec::new(),
         None,

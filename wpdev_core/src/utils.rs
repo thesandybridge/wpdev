@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::{thread, time::Duration};
 
+use crate::docker::container::ContainerImage;
 use std::path::PathBuf;
 use tokio::fs;
 
@@ -103,7 +104,7 @@ pub async fn find_free_port() -> Result<u32, AnyhowError> {
 }
 
 pub fn create_labels(
-    image: crate::ContainerImage,
+    image: ContainerImage,
     hashmap: HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut new_labels = hashmap.clone();
