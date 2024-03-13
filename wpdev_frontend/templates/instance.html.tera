@@ -1,6 +1,43 @@
-<div class="instance" data-id="{{ instance.uuid }}">
-    <h3>{{ instance.wordpress_data.site_title }}</h3>
-    <p>Status: {{ instance.status }}</p>
+<div
+    title="{{ instance.status }}"
+    class="instance {{ instance.status }}" data-id="{{ instance.uuid }}">
+    <div class="instance-header">
+        <div class="instance-title">
+            <div class="instance-status {{ instance.status }}" title="{{ instance.status }}"></div>
+            <h3>{{ instance.wordpress_data.site_title }}</h3>
+        </div>
+        <div class="instance-controls">
+            <button
+                hx-delete="/delete_instance/{{ instance.uuid }}"
+                hx-target="#instances-list"
+                hx-indicator=".loader"
+            >Delete</button>
+            <button
+                hx-post="/start_instance/{{ instance.uuid }}"
+                hx-target="#instances-list"
+                hx-indicator=".loader"
+                {% if instance.status == "Running" %}
+                disabled
+                {% endif %}
+            >Start</button>
+            <button
+                hx-post="/stop_instance/{{ instance.uuid }}"
+                hx-target="#instances-list"
+                hx-indicator=".loader"
+                {% if instance.status == "Stopped" %}
+                disabled
+                {% endif %}
+            >Stop</button>
+            <button
+                hx-post="/restart_instance/{{ instance.uuid }}"
+                hx-target="#instances-list"
+                hx-indicator=".loader"
+                {% if instance.status == "Stopped" %}
+                disabled
+                {% endif %}
+            >Restart</button>
+        </div>
+    </div>
     {% if instance.status == "Running" %}
     <div class="instance-details">
         <p>URL: <a href="{{ instance.wordpress_data.site_url }}" target="_blank">{{ instance.wordpress_data.site_url }}</a></p>
@@ -9,37 +46,13 @@
     {% endif %}
     <div class="instance-containers">
         {% for container in instance.containers %}
-        <div class="instance-container" data-id="{{ container.container_id }}">
+        <div
+            title="{{ container.container_status }}"
+            class="instance-container {{ container.container_status }}"
+            data-id="{{ container.container_id }}">
             <h4>{{ container.container_image }}</h4>
-            <p>Status: {{ container.container_status }}</p>
         </div>
         {% endfor %}
     </div>
-    <div class="instance-controls">
-        <button
-            hx-delete="/delete_instance/{{ instance.uuid }}"
-            hx-target="#instances-list"
-        >Delete</button>
-        <button
-            hx-post="/start_instance/{{ instance.uuid }}"
-            hx-target="#instances-list"
-            {% if instance.status == "Running" %}
-            disabled
-            {% endif %}
-        >Start</button>
-        <button
-            hx-post="/stop_instance/{{ instance.uuid }}"
-            hx-target="#instances-list"
-            {% if instance.status == "Stopped" %}
-            disabled
-            {% endif %}
-        >Stop</button>
-        <button
-            hx-post="/restart_instance/{{ instance.uuid }}"
-            hx-target="#instances-list"
-            {% if instance.status == "Stopped" %}
-            disabled
-            {% endif %}
-        >Restart</button>
-    </div>
+
 </div>

@@ -2,33 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WPDEV - Instance Management</title>
     <script src="/static/htmx.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-
-<h1>WPDEV Instance Management</h1>
-
+<div class="loader">
+    <div class="spinner"></div>
+</div>
 <!-- Create Instance Form -->
-<div class="container">
-    <button hx-post="/create_instance"
-        hx-target="#instances-list"
+<div class="container wpdev-header">
+    <h1>WPDEV Instance Management</h1>
+    <div class="wpdev-controls">
+        <button hx-post="/create_instance"
+            hx-target="#instances-list"
+            hx-indicator=".loader"
         >Create Instance</button>
 
-    <button hx-delete="/delete_instances"
+        <button hx-delete="/delete_instances"
             hx-target="#instances-list"
-            >Delete All</button>
-    <button hx-post="/start_all_instances"
+            hx-confirm="Are you sure you want to delete all instances?"
+            hx-indicator=".loader"
+        >Delete All</button>
+        <button hx-post="/start_all_instances"
             hx-target="#instances-list"
-            >Start All</button>
-    <button hx-post="/stop_all_instances"
+            hx-indicator=".loader"
+        >Start All</button>
+        <button hx-post="/stop_all_instances"
             hx-target="#instances-list"
-            >Stop All</button>
-    <button hx-post="/restart_all_instances"
+            hx-indicator=".loader"
+        >Stop All</button>
+        <button hx-post="/restart_all_instances"
             hx-target="#instances-list"
-            >Restart All</button>
-
+            hx-indicator=".loader"
+        >Restart All</button>
+    </div>
 </div>
 
 <div class="container">
