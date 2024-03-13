@@ -229,10 +229,7 @@ impl InstanceContainer {
         }
     }
 
-    pub async fn get_status(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<ContainerStatus, AnyhowError> {
+    pub async fn get_status(docker: &Docker, container_id: &str) -> Result<ContainerStatus> {
         let container_info = docker
             .inspect_container(container_id, None)
             .await
@@ -257,24 +254,15 @@ impl InstanceContainer {
         .await
     }
 
-    pub async fn start(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn start(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(docker, &container_id.to_string(), ContainerOperation::Start).await
     }
 
-    pub async fn stop(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn stop(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(docker, &container_id.to_string(), ContainerOperation::Stop).await
     }
 
-    pub async fn restart(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn restart(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(
             docker,
             &container_id.to_string(),
@@ -283,10 +271,7 @@ impl InstanceContainer {
         .await
     }
 
-    pub async fn delete(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn delete(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(
             docker,
             &container_id.to_string(),
@@ -300,7 +285,7 @@ pub async fn handle_container(
     docker: &Docker,
     container_id: &str,
     operation: ContainerOperation,
-) -> Result<InstanceContainer, AnyhowError> {
+) -> Result<InstanceContainer> {
     let container_info = docker
         .inspect_container(container_id, None)
         .await

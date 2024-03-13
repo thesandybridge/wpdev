@@ -4,6 +4,7 @@ mod commands;
 use wpdev_core::config;
 use wpdev_core::utils;
 
+use bat::PrettyPrinter;
 use clap::{arg, Command};
 use serde_json;
 
@@ -62,7 +63,6 @@ fn cli() -> Command {
 #[tokio::main]
 async fn main() -> Result<(), AnyhowError> {
     config::pull_docker_images_from_config().await?;
-
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("instances", sites_matches)) => match sites_matches.subcommand() {
@@ -71,44 +71,87 @@ async fn main() -> Result<(), AnyhowError> {
                 let instance =
                     utils::with_spinner(commands::create_instance(options), "Creating instance")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("start", start_matches)) => {
                 let id = start_matches.get_one("ID").unwrap();
                 let instance =
                     utils::with_spinner(commands::start_instance(id), "Starting instance").await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("stop", stop_matches)) => {
                 let id = stop_matches.get_one("ID").unwrap();
                 let instance =
                     utils::with_spinner(commands::stop_instance(id), "Stopping instance").await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("restart", restart_matches)) => {
                 let id = restart_matches.get_one("ID").unwrap();
                 let instance =
                     utils::with_spinner(commands::restart_instance(id), "Restarting instance")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("delete", delete_matches)) => {
                 let id = delete_matches.get_one("ID").unwrap();
                 let instance =
                     utils::with_spinner(commands::delete_instance(id), "Deleting instance").await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("start_all", _)) => {
                 let instance =
                     utils::with_spinner(commands::start_all_instances(), "Starting all instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("stop_all", _)) => {
                 let instance =
                     utils::with_spinner(commands::stop_all_instances(), "Stopping all instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("restart_all", _)) => {
                 let instance = utils::with_spinner(
@@ -116,26 +159,50 @@ async fn main() -> Result<(), AnyhowError> {
                     "Restarting all instances",
                 )
                 .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("purge", _)) => {
                 let instance =
                     utils::with_spinner(commands::delete_all_instances(), "Purging all instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("status", status_matches)) => {
                 let id = status_matches.get_one("ID").unwrap();
                 let instance =
                     utils::with_spinner(commands::inspect_instance(id), "Getting instance status")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             Some(("list", _)) => {
                 let instance =
                     utils::with_spinner(commands::inspect_all_instances(), "Getting instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                let instance_bytes = instance_str.as_bytes();
+                PrettyPrinter::new()
+                    .input_from_bytes(instance_bytes)
+                    .language("json")
+                    .print()?;
             }
             _ => println!("Invalid command. Please use <help> to a see full list of commands."),
         },

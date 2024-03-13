@@ -2,6 +2,7 @@ use anyhow::{Context, Error as AnyhowError, Result};
 use bollard::container::ListContainersOptions;
 use bollard::Docker;
 use dirs;
+use futures::future::join_all;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -53,6 +54,7 @@ pub enum InstanceStatus {
     Dead,
     Unknown,
     PartiallyRunning,
+    Deleted,
 }
 
 impl InstanceStatus {
@@ -300,14 +302,12 @@ impl Instance {
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
-        for container in &instance.containers {
+        let start_container_futures = instance.containers.iter().map(|container| async move {
             InstanceContainer::start(docker, &container.container_id)
                 .await
-                .context(format!(
-                    "Failed to start container {}",
-                    &container.container_id
-                ))?;
-        }
+                .with_context(|| format!("Failed to start container {}", &container.container_id))
+        });
+        let _ = join_all(start_container_futures).await;
         instance.status = InstanceStatus::default(docker, &instance.containers)
             .await
             .context("Failed to get default status for instance containers")?;
@@ -317,59 +317,32 @@ impl Instance {
         })
     }
 
-    pub async fn start_all(docker: &Docker, network_prefix: &str) -> Result<()> {
+    pub async fn start_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
-        for (instance_id, _) in instances {
-            Self::start(docker, &instance_id).await?;
-        }
-        Ok(())
+
+        let start_instance_futures = instances.values().map(|instance| async move {
+            Self::start(docker, &instance.uuid)
+                .await
+                .with_context(|| format!("Failed to start instance {}", &instance.uuid))
+        });
+
+        let results: Result<Vec<_>> = join_all(start_instance_futures).await.into_iter().collect();
+
+        results
     }
 
     pub async fn stop(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
-        for container in &instance.containers {
+        let stop_container_futures = instance.containers.iter().map(|container| async move {
             InstanceContainer::stop(docker, &container.container_id)
                 .await
-                .context(format!(
-                    "Failed to stop container {}",
-                    &container.container_id
-                ))?;
-        }
-        instance.status = InstanceStatus::Stopped;
-        Ok(InstanceInfo {
-            uuid: instance.uuid.clone(),
-            status: format!("{:?}", instance.status),
-        })
-    }
-
-    pub async fn stop_all(docker: &Docker, network_prefix: &str) -> Result<()> {
-        let instances = Self::list_all(docker, network_prefix)
-            .await
-            .context("Failed to list instances")?;
-
-        for (_, instance) in instances {
-            Self::stop(docker, &instance.uuid).await?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn restart(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
-        let mut instance = Self::list(docker, &instance_id)
-            .await
-            .context("Failed to list instance")?;
-        for container in &instance.containers {
-            InstanceContainer::restart(docker, &container.container_id)
-                .await
-                .context(format!(
-                    "Failed to restart container {}",
-                    &container.container_id
-                ))?;
-        }
+                .with_context(|| format!("Failed to stop container {}", &container.container_id))
+        });
+        let _ = join_all(stop_container_futures).await;
         instance.status = InstanceStatus::default(docker, &instance.containers)
             .await
             .context("Failed to get default status for instance containers")?;
@@ -379,54 +352,98 @@ impl Instance {
         })
     }
 
-    pub async fn restart_all(docker: &Docker, network_prefix: &str) -> Result<()> {
+    pub async fn stop_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
 
-        for (_, instance) in instances {
-            Self::restart(docker, &instance.uuid).await?;
-        }
+        let stop_instance_futures = instances.values().map(|instance| async move {
+            Self::stop(docker, &instance.uuid)
+                .await
+                .with_context(|| format!("Failed to stop instance {}", &instance.uuid))
+        });
 
-        Ok(())
+        let results: Result<Vec<_>> = join_all(stop_instance_futures).await.into_iter().collect();
+
+        results
     }
 
-    pub async fn delete(
-        docker: &Docker,
-        instance_id: &str,
-        delete_all: bool,
-    ) -> Result<InstanceInfo> {
+    pub async fn restart(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
-        for container in &instance.containers {
-            InstanceContainer::delete(docker, &container.container_id)
+        let restart_container_futures = instance.containers.iter().map(|container| async move {
+            InstanceContainer::restart(docker, &container.container_id)
                 .await
-                .context(format!(
-                    "Failed to delete container {}",
-                    &container.container_id
-                ))?;
-        }
-        instance.status = InstanceStatus::Stopped;
-        if !delete_all {
-            purge_instances(InstanceSelection::One(instance_id.to_string())).await?;
-        }
+                .with_context(|| format!("Failed to restart container {}", &container.container_id))
+        });
+        let _ = join_all(restart_container_futures).await;
+        instance.status = InstanceStatus::default(docker, &instance.containers)
+            .await
+            .context("Failed to get default status for instance containers")?;
         Ok(InstanceInfo {
             uuid: instance.uuid.clone(),
             status: format!("{:?}", instance.status),
         })
     }
 
-    pub async fn delete_all(docker: &Docker, network_prefix: &str) -> Result<()> {
+    pub async fn restart_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
 
-        for (instance_id, _) in instances {
-            Self::delete(docker, &instance_id, true).await?;
+        let restart_instance_futures = instances.values().map(|instance| async move {
+            Self::restart(docker, &instance.uuid)
+                .await
+                .with_context(|| format!("Failed to restart instance {}", &instance.uuid))
+        });
+
+        let results: Result<Vec<_>> = join_all(restart_instance_futures)
+            .await
+            .into_iter()
+            .collect();
+
+        results
+    }
+
+    pub async fn delete(docker: &Docker, instance_id: &str, purge: bool) -> Result<InstanceInfo> {
+        let instance = Self::list(docker, &instance_id)
+            .await
+            .context("Failed to list instance")?;
+        let delete_container_futures = instance.containers.iter().map(|container| async move {
+            InstanceContainer::delete(docker, &container.container_id)
+                .await
+                .with_context(|| format!("Failed to delete container {}", &container.container_id))
+        });
+        let _ = join_all(delete_container_futures).await;
+        if !purge {
+            purge_instances(InstanceSelection::One(instance_id.to_string())).await?;
         }
+        Ok(InstanceInfo {
+            uuid: instance.uuid.clone(),
+            status: format!("{:?}", InstanceStatus::Deleted),
+        })
+    }
+
+    pub async fn delete_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
+        let instances = Self::list_all(docker, network_prefix)
+            .await
+            .context("Failed to list instances")?;
+
+        let delete_instance_futures = instances.values().map(|instance| async move {
+            Self::delete(docker, &instance.uuid, true)
+                .await
+                .with_context(|| format!("Failed to delete instance {}", &instance.uuid))
+        });
+
+        let results: Result<Vec<_>> = join_all(delete_instance_futures)
+            .await
+            .into_iter()
+            .collect();
+
         purge_instances(InstanceSelection::All).await?;
-        Ok(())
+
+        results
     }
 
     pub async fn inspect(docker: &Docker, instance_id: &str) -> Result<Instance> {
