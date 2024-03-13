@@ -114,6 +114,7 @@ The roadmap outlines the planned improvements and major features that are in the
 
 - [x] Rebuild Frontend with Actix-web/HTMX: Transition the current Next.js-based frontend to Actix-web/HTMX to enhance performance and maintainability.
 - [ ] Add Customization Framework: Implement a framework to configure the frontend and individual WordPress sites, allowing for greater flexibility and user personalization.
+- [ ] Add logging and more config customization.
 
 Please note that this roadmap is indicative and might evolve based on the project's progress, community feedback, and contributor availability.
 
