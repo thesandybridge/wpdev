@@ -110,7 +110,7 @@ pub async fn restart_all_instances() -> Result<(), Custom<String>> {
     }
 }
 
-#[post("/instances/<instance_uuid>/delete")]
+#[delete("/instances/<instance_uuid>/delete")]
 pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
@@ -120,7 +120,7 @@ pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> 
     }
 }
 
-#[post("/instances/purge")]
+#[delete("/instances/purge")]
 pub async fn delete_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
@@ -176,7 +176,7 @@ pub async fn restart_container(
     }
 }
 
-#[post("/containers/<container_id>/delete")]
+#[delete("/containers/<container_id>/delete")]
 pub async fn delete_container(container_id: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;

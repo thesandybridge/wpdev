@@ -58,6 +58,22 @@ function createInstance() {
         });
 }
 
+function deleteInstance(uuid) {
+    fetch(`http://${api_url}/api/instances/${uuid}/delete`, {
+        method: 'DELETE',
+    })
+    .then(response => {
+        if(response.ok) {
+            fetchInstances();
+        } else {
+            throw new Error('Failed to delete instance');
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting instance:', error);
+    });
+}
+
 async function fetchInstances() {
     fetch(`http://${api_url}/api/instances/inspect_all`)
         .then(response => response.json())
@@ -70,6 +86,7 @@ async function fetchInstances() {
                     <div data-id='${instance.uuid}'>
                         <h3>${instance.wordpress_data.site_title}</h3>
                         <p>Status: ${instance.status}</p>
+                        <button onclick="deleteInstance('${instance.uuid}')">Delete</button>
                     </div>`;
             });
             instancesList.innerHTML = htmlContent;
