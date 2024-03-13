@@ -12,7 +12,7 @@ use uuid::Uuid;
 use wpdev_core::docker::container::{ContainerEnvVars, InstanceContainer};
 use wpdev_core::docker::instance::Instance;
 
-#[post("/instances/create", format = "json", data = "<env_vars>")]
+#[post("/instances/create", data = "<env_vars>")]
 pub async fn create_instance(
     env_vars: Option<Json<ContainerEnvVars>>,
 ) -> Result<Json<Instance>, Custom<String>> {
@@ -34,7 +34,7 @@ pub async fn create_instance(
 pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<Instance>, Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::inspect(&docker, wpdev_core::NETWORK_NAME, instance_uuid).await {
+    match Instance::inspect(&docker, instance_uuid).await {
         Ok(instance) => Ok(Json(instance)),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
@@ -110,17 +110,17 @@ pub async fn restart_all_instances() -> Result<(), Custom<String>> {
     }
 }
 
-#[post("/instances/<instance_uuid>/delete")]
+#[delete("/instances/<instance_uuid>/delete")]
 pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::delete(&docker, &instance_uuid).await {
+    match Instance::delete(&docker, &instance_uuid, false).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
 }
 
-#[post("/instances/purge")]
+#[delete("/instances/purge")]
 pub async fn delete_all_instances() -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
@@ -176,7 +176,7 @@ pub async fn restart_container(
     }
 }
 
-#[post("/containers/<container_id>/delete")]
+#[delete("/containers/<container_id>/delete")]
 pub async fn delete_container(container_id: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;

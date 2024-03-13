@@ -8,17 +8,17 @@
 
 wpdev an integrated solution for managing WordPress environments. It consists of three core components:
 
-1. 🖥️ Frontend WebApp Dashboard: A Next.js-based dashboard for a user-friendly interface to manage WordPress environments.
-2. 🔧 Backend API: Developed using Rust with Rocket and Shiplift, this API handles the setup and management of WordPress, Nginx, Adminer, and MySQL Docker containers within an instance.
+1. 🖥️ Frontend WebApp Dashboard: A HTMX and Actix-web dashboard for a user-friendly interface to manage WordPress environments.
+2. 🔧 Backend API: Developed using Rust with Rocket and Bollard, this API handles the setup and management of WordPress, Nginx, Adminer, and MySQL Docker containers within an instance.
 3. ⌨️ CLI Tool: An alternative to the Frontend WebApp, providing command-line access to the same functionalities.
 
 ## Getting Started 🌟
 
 ### Prerequisites
 
-- Node.js (for Frontend WebApp)
-- Rust (for Backend API)
-- Docker (for container management)
+- Basic unix command-line knowledge
+- Rust (for Backend API) -> [Install Rust](https://www.rust-lang.org/tools/install)
+- Docker (for container management) -> [Install Docker](https://docs.docker.com/get-docker/)
 
 ## Installation 🛠️
 
@@ -28,19 +28,27 @@ wpdev an integrated solution for managing WordPress environments. It consists of
 
 ```bash
 git clone https://github.com/thesandybridge/wpdev.git
-cd wpdev/wpdev_frontend
+```
+```bash
+cd wpdev
 ```
 
-2. Install dependencies:
+2. Build the Rust project:
 
 ```bash
-npm install
+cargo build -p wpdev_frontend
 ```
 
-3. Start the development server:
+3. Run the web server:
 
 ```bash
-npm run dev
+cargo run -p wpdev_frontend
+```
+
+4. Open the WebApp in your browser:
+
+```bash
+open http://localhost:8080
 ```
 
 ### Backend API
@@ -87,7 +95,7 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 
 ### Frontend WebApp
 
-- Access the WebApp through http://localhost:3000.
+- Access the WebApp through http://localhost:8080.
 - Manage WordPress environments through the user-friendly dashboard.
 
 ### Backend API
@@ -104,8 +112,9 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 
 The roadmap outlines the planned improvements and major features that are in the pipeline for wpdev. This list is subject to change and will be updated as the project evolves.
 
-- [ ] Rebuild Frontend with Astro/HTMX: Transition the current Next.js-based frontend to Astro/HTMX to enhance performance and maintainability.
+- [x] Rebuild Frontend with Actix-web/HTMX: Transition the current Next.js-based frontend to Actix-web/HTMX to enhance performance and maintainability.
 - [ ] Add Customization Framework: Implement a framework to configure the frontend and individual WordPress sites, allowing for greater flexibility and user personalization.
+- [ ] Add logging and more config customization.
 
 Please note that this roadmap is indicative and might evolve based on the project's progress, community feedback, and contributor availability.
 
