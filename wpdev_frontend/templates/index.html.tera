@@ -22,7 +22,17 @@
 
     <button hx-delete="/delete_instances"
             hx-target="#instances-list"
-            hx-swap="innerHTML">Delete All</button>
+            >Delete All</button>
+    <button hx-post="/start_all_instances"
+            hx-target="#instances-list"
+            >Start All</button>
+    <button hx-post="/stop_all_instances"
+            hx-target="#instances-list"
+            >Stop All</button>
+    <button hx-post="/restart_all_instances"
+            hx-target="#instances-list"
+            >Restart All</button>
+
 </div>
 
 <div class="container">

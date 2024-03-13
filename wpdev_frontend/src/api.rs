@@ -75,34 +75,6 @@ pub async fn inspect_all() -> Result<HttpResponse> {
     }
 }
 
-pub async fn inspect_all_instances() -> Result<HttpResponse> {
-    let docker = Docker::connect_with_defaults().map_err(|e| {
-        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
-    })?;
-
-    match Instance::inspect_all(&docker, wpdev_core::NETWORK_NAME).await {
-        Ok(instances) => {
-            let asset = TemplateAssets::get("instances.html.tera").expect("Template not found");
-            let template_str =
-                std::str::from_utf8(asset.data.as_ref()).expect("Failed to decode template");
-
-            let mut tera = Tera::default();
-            tera.add_raw_template("instances.html.tera", template_str)
-                .expect("Failed to load template");
-
-            let mut context = Context::new();
-            context.insert("instances", &instances);
-
-            let rendered = tera
-                .render("instances.html.tera", &context)
-                .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
-
-            Ok(HttpResponse::Ok().content_type("text/html").body(rendered))
-        }
-        Err(e) => Ok(HttpResponse::InternalServerError().body(e.to_string())),
-    }
-}
-
 pub async fn create_instance(body: Option<web::Bytes>) -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
@@ -155,6 +127,120 @@ pub async fn delete_instance(path: web::Path<String>) -> Result<HttpResponse> {
     println!("Deleting instance: {}", instance_uuid);
 
     match Instance::delete(&docker, &instance_uuid, false).await {
+        Ok(_) => {
+            return inspect_all().await;
+        }
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": e.to_string()
+            })));
+        }
+    }
+}
+
+pub async fn restart_all_instances() -> Result<HttpResponse> {
+    let docker = Docker::connect_with_defaults().map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
+    })?;
+
+    match Instance::restart_all(&docker, wpdev_core::NETWORK_NAME).await {
+        Ok(_) => {
+            return inspect_all().await;
+        }
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": e.to_string()
+            })));
+        }
+    }
+}
+
+pub async fn restart_instance(path: web::Path<String>) -> Result<HttpResponse> {
+    let instance_uuid = path.into_inner();
+
+    let docker = Docker::connect_with_defaults().map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
+    })?;
+
+    match Instance::restart(&docker, &instance_uuid).await {
+        Ok(_) => {
+            return inspect_all().await;
+        }
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": e.to_string()
+            })));
+        }
+    }
+}
+
+pub async fn stop_all_instances() -> Result<HttpResponse> {
+    let docker = Docker::connect_with_defaults().map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
+    })?;
+
+    match Instance::stop_all(&docker, wpdev_core::NETWORK_NAME).await {
+        Ok(_) => {
+            return inspect_all().await;
+        }
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": e.to_string()
+            })));
+        }
+    }
+}
+
+pub async fn stop_instance(path: web::Path<String>) -> Result<HttpResponse> {
+    let instance_uuid = path.into_inner();
+
+    let docker = Docker::connect_with_defaults().map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
+    })?;
+
+    match Instance::stop(&docker, &instance_uuid).await {
+        Ok(_) => {
+            return inspect_all().await;
+        }
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": e.to_string()
+            })));
+        }
+    }
+}
+
+pub async fn start_instance(path: web::Path<String>) -> Result<HttpResponse> {
+    let instance_uuid = path.into_inner();
+
+    let docker = Docker::connect_with_defaults().map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
+    })?;
+
+    match Instance::start(&docker, &instance_uuid).await {
+        Ok(_) => {
+            return inspect_all().await;
+        }
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": e.to_string()
+            })));
+        }
+    }
+}
+
+pub async fn start_all_instances() -> Result<HttpResponse> {
+    let docker = Docker::connect_with_defaults().map_err(|e| {
+        actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
+    })?;
+
+    match Instance::start_all(&docker, wpdev_core::NETWORK_NAME).await {
         Ok(_) => {
             return inspect_all().await;
         }

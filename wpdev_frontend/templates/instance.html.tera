@@ -5,4 +5,25 @@
         hx-delete="/delete_instance/{{ instance.uuid }}"
         hx-target="#instances-list"
     >Delete</button>
+    <button
+        hx-post="/start_instance/{{ instance.uuid }}"
+        hx-target="#instances-list"
+        {% if instance.status == "Running" %}
+            disabled
+        {% endif %}
+    >Start</button>
+    <button
+        hx-post="/stop_instance/{{ instance.uuid }}"
+        hx-target="#instances-list"
+        {% if instance.status == "Stopped" %}
+            disabled
+        {% endif %}
+    >Stop</button>
+    <button
+        hx-post="/restart_instance/{{ instance.uuid }}"
+        hx-target="#instances-list"
+        {% if instance.status == "Stopped" %}
+            disabled
+        {% endif %}
+    >Restart</button>
 </div>

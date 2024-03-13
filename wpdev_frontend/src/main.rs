@@ -58,9 +58,6 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .service(web::resource("/").route(web::get().to(index)))
-            .service(
-                web::resource("/instances_list").route(web::get().to(api::inspect_all_instances)),
-            )
             .service(web::resource("/list_all_instances").route(web::get().to(api::inspect_all)))
             .service(
                 web::resource("/list_instance/{id}").route(web::get().to(api::inspect_instance)),
@@ -73,6 +70,25 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::resource("/delete_instance/{id}")
                     .route(web::delete().to(api::delete_instance)),
+            )
+            .service(
+                web::resource("/start_instance/{id}").route(web::post().to(api::start_instance)),
+            )
+            .service(web::resource("/stop_instance/{id}").route(web::post().to(api::stop_instance)))
+            .service(
+                web::resource("/restart_instance/{id}")
+                    .route(web::post().to(api::restart_instance)),
+            )
+            .service(
+                web::resource("/start_all_instances")
+                    .route(web::post().to(api::start_all_instances)),
+            )
+            .service(
+                web::resource("/stop_all_instances").route(web::post().to(api::stop_all_instances)),
+            )
+            .service(
+                web::resource("/restart_all_instances")
+                    .route(web::post().to(api::restart_all_instances)),
             )
             .service(web::resource("/static/htmx.min.js").route(web::get().to(htmx_js)))
             .service(fs::Files::new("/static", "./static"))
