@@ -467,9 +467,6 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
         InstanceSelection::All => {
             let p = &config_dir;
             let path = p.to_str().context("Instance directory not found")?;
-            fs::remove_dir_all(&path)
-                .await
-                .context(format!("Error removing directory: {}", path))?;
             let networks = docker
                 .list_networks::<String>(None)
                 .await
@@ -486,7 +483,9 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
                     .await
                     .context(format!("Failed to remove network {}", full_network_name))?;
             }
-
+            fs::remove_dir_all(&path)
+                .await
+                .context(format!("Error removing directory: {}", path))?;
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
