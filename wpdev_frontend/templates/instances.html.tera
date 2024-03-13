@@ -1,0 +1,8 @@
+<div class="instance">
+    {% for instance in instances %}
+    <div class="instance" data-id="{{ instance.uuid }}">
+        <h3>{{ instance.wordpress_data.site_title }}</h3>
+        <p>Status: {{ instance.status }}</p>
+    </div>
+    {% endfor %}
+</div>

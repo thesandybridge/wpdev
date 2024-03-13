@@ -114,7 +114,7 @@ pub async fn restart_all_instances() -> Result<(), Custom<String>> {
 pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::delete(&docker, &instance_uuid).await {
+    match Instance::delete(&docker, &instance_uuid, false).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }

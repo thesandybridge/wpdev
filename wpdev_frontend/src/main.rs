@@ -5,6 +5,8 @@ use rust_embed::RustEmbed;
 use serde::Serialize;
 use tera::{Context, Tera};
 
+mod api;
+
 #[derive(Serialize)]
 struct IndexContext {
     api_url: String,
@@ -47,8 +49,8 @@ async fn htmx_js() -> Result<HttpResponse, Error> {
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         let cors = Cors::default()
-            .allowed_origin("http://127.0.0.1:8000")
-            .allowed_methods(vec!["GET", "POST"])
+            .allowed_origin("http://127.0.0.1:8080")
+            .allowed_methods(vec!["GET", "POST", "OPTIONS", "DELETE"])
             .allowed_headers(vec!["Content-Type", "*"])
             .supports_credentials()
             .max_age(3600);
@@ -56,6 +58,15 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .service(web::resource("/").route(web::get().to(index)))
+            .service(
+                web::resource("/instances_list").route(web::get().to(api::inspect_all_instances)),
+            )
+            .service(web::resource("/instances/{id}").route(web::get().to(api::inspect_instance)))
+            .service(web::resource("/create_instance").route(web::post().to(api::create_instance)))
+            .service(
+                web::resource("/delete_instance")
+                    .route(web::delete().to(api::delete_all_instances)),
+            )
             .service(web::resource("/static/htmx.min.js").route(web::get().to(htmx_js)))
             .service(fs::Files::new("/static", "./static"))
     })

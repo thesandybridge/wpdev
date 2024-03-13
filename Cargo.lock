@@ -3688,9 +3688,13 @@ dependencies = [
  "actix-files",
  "actix-web",
  "anyhow",
+ "bollard",
  "rust-embed",
  "serde",
+ "serde_json",
  "tera",
+ "uuid",
+ "wpdev_core",
 ]
 
 [[package]]

@@ -392,7 +392,11 @@ impl Instance {
         Ok(())
     }
 
-    pub async fn delete(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
+    pub async fn delete(
+        docker: &Docker,
+        instance_id: &str,
+        delete_all: bool,
+    ) -> Result<InstanceInfo> {
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
@@ -405,7 +409,14 @@ impl Instance {
                 ))?;
         }
         instance.status = InstanceStatus::Stopped;
-        purge_instances(InstanceSelection::One(instance_id.to_string())).await?;
+        match delete_all {
+            true => {
+                purge_instances(InstanceSelection::All).await?;
+            }
+            false => {
+                purge_instances(InstanceSelection::One(instance_id.to_string())).await?;
+            }
+        }
         Ok(InstanceInfo {
             uuid: instance.uuid.clone(),
             status: format!("{:?}", instance.status),
@@ -418,7 +429,7 @@ impl Instance {
             .context("Failed to list instances")?;
 
         for (instance_id, _) in instances {
-            Self::delete(docker, &instance_id).await?;
+            Self::delete(docker, &instance_id, true).await?;
         }
 
         Ok(())
@@ -469,11 +480,11 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
                     .as_ref()
                     .map_or(false, |name| name.starts_with(crate::NETWORK_NAME))
             }) {
-                let network_id = network.id.as_ref().expect("Network ID not found");
+                let full_network_name = network.name.unwrap_or_default();
                 docker
-                    .remove_network(network_id)
+                    .remove_network(&full_network_name)
                     .await
-                    .context(format!("Failed to remove network with ID {}", network_id))?;
+                    .context(format!("Failed to remove network {}", full_network_name))?;
             }
 
             Ok(())
