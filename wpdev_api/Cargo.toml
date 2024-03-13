@@ -17,6 +17,7 @@ anyhow = "1.0.75"
 serde = "1.0.193"
 serde_json = "1.0.108"
 rocket_cors = "0.6.0"
+bollard = "0.16.0"
 
 [dependencies.uuid]
 version = "1.6.1"

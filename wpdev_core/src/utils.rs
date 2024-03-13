@@ -1,4 +1,4 @@
-use anyhow::{Error as AnyhowError, Result};
+use anyhow::{Context, Result};
 use prettytable::row;
 use prettytable::{format, Cell, Row, Table};
 use serde_json::Value;
@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::{thread, time::Duration};
 
+use crate::docker::container::ContainerImage;
 use std::path::PathBuf;
 use tokio::fs;
 
@@ -16,14 +17,12 @@ pub async fn with_spinner<F, T, E>(future: F, message: &str) -> Result<T, E>
 where
     F: Future<Output = Result<T, E>>,
 {
-    // Flush stdout before starting the spinner
     io::stdout().flush().unwrap();
 
     let mut sp = Spinner::new(Spinners::Dots9, message.into());
     let result = future.await;
     sp.stop();
 
-    // Short delay to ensure the spinner is cleared
     thread::sleep(Duration::from_millis(100));
 
     result
@@ -32,10 +31,8 @@ where
 pub fn print_instances_table(json_data: &Value) {
     let mut table = Table::new();
 
-    // Set table format
     table.set_format(*format::consts::FORMAT_BOX_CHARS);
 
-    // Add a title row
     table.add_row(row![
         "UUID",
         "Status",
@@ -50,10 +47,8 @@ pub fn print_instances_table(json_data: &Value) {
             let adminer_port = details["adminer_port"].as_u64().unwrap_or(0);
             let nginx_port = details["nginx_port"].as_u64().unwrap_or(0);
 
-            // Truncate UUID for display
             let display_uuid = uuid.get(..8).unwrap_or(uuid);
 
-            // Summarize container statuses
             let status_summary = details["container_statuses"]
                 .as_object()
                 .map(|statuses| {
@@ -75,16 +70,17 @@ pub fn print_instances_table(json_data: &Value) {
         }
     }
 
-    // Print the table
     table.printstd();
 }
 
-pub async fn create_path(path: &PathBuf) -> Result<&PathBuf, AnyhowError> {
-    fs::create_dir_all(&path).await?;
+pub async fn create_path(path: &PathBuf) -> Result<&PathBuf> {
+    fs::create_dir_all(&path).await.context(format!(
+        "Failed to create directory at path: {}",
+        path.to_string_lossy()
+    ))?;
     Ok(path)
 }
 
-/// Parses a port from a label, providing a default value if necessary.
 pub fn parse_port(port_label: Option<&String>) -> Result<u32> {
     let port = port_label
         .and_then(|port| port.parse::<u32>().ok())
@@ -93,7 +89,7 @@ pub fn parse_port(port_label: Option<&String>) -> Result<u32> {
     Ok(port)
 }
 
-pub async fn find_free_port() -> Result<u32, AnyhowError> {
+pub async fn find_free_port() -> Result<u32> {
     // Bind to port 0; the OS will assign a random available port
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let socket_addr: SocketAddr = listener.local_addr()?;
@@ -103,7 +99,7 @@ pub async fn find_free_port() -> Result<u32, AnyhowError> {
 }
 
 pub fn create_labels(
-    image: crate::ContainerImage,
+    image: ContainerImage,
     hashmap: HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut new_labels = hashmap.clone();

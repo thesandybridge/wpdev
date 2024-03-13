@@ -132,11 +132,9 @@ async fn main() -> Result<(), AnyhowError> {
                 println!("\n{}", serde_json::to_string_pretty(&instance)?);
             }
             Some(("list", _)) => {
-                let instance = utils::with_spinner(
-                    commands::inspect_all_instances(),
-                    "Getting instance statuses",
-                )
-                .await?;
+                let instance =
+                    utils::with_spinner(commands::inspect_all_instances(), "Getting instances")
+                        .await?;
                 println!("\n{}", serde_json::to_string_pretty(&instance)?);
             }
             _ => println!("Invalid command. Please use <help> to a see full list of commands."),
