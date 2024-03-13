@@ -9,6 +9,7 @@ pub const WORDPRESS_IMAGE: &str = "wordpress:latest";
 pub const NGINX_IMAGE: &str = "nginx:latest";
 pub const MYSQL_IMAGE: &str = "mysql:latest";
 pub const ADMINER_IMAGE: &str = "adminer:latest";
+pub const WORDPRESS_CLI_IMAGE: &str = "wordpress:cli";
 
 #[derive(Serialize, Deserialize)]
 pub struct AppConfig {
@@ -25,11 +26,11 @@ impl Default for AppConfig {
         AppConfig {
             custom_root: String::from(".config/wpdev/instances"),
             docker_images: vec![
-                "wordpress:latest".into(),
-                "nginx:latest".into(),
-                "mysql:latest".into(),
-                "adminer:latest".into(),
-                "wordpress:cli".into(),
+                WORDPRESS_IMAGE.to_string(),
+                NGINX_IMAGE.to_string(),
+                MYSQL_IMAGE.to_string(),
+                ADMINER_IMAGE.to_string(),
+                WORDPRESS_CLI_IMAGE.to_string(),
             ],
             enable_logging: true,
             enable_frontend: false,

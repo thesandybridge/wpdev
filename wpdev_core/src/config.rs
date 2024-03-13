@@ -14,6 +14,7 @@ use tokio::fs::{self};
 use crate::docker::container::{ContainerEnvVars, ContainerImage, EnvVars};
 use crate::docker::instance::InstanceData;
 use crate::utils;
+use crate::AppConfig;
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     let config_dir =
@@ -30,12 +31,12 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
             let contents = fs::read_to_string(&config_path)
                 .await
                 .context("Failed to read config file")?;
-            let config: crate::AppConfig =
+            let config: AppConfig =
                 toml::from_str(&contents).context("Failed to parse config file")?;
             Ok(config)
         }
         Err(_) => {
-            let config = crate::AppConfig::default();
+            let config = AppConfig::default();
             let toml = toml::to_string(&config).context("Failed to serialize default config")?;
             fs::write(&config_path, toml)
                 .await
@@ -131,14 +132,18 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
 }
 
 pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
-    let config = read_or_create_config().await?;
+    let config = read_or_create_config()
+        .await
+        .context("Failed to read config")?;
 
     if config.docker_images.is_empty() {
         return Ok(());
     }
 
     for image_name in config.docker_images {
-        pull_docker_image_if_not_exists(&image_name).await?;
+        pull_docker_image_if_not_exists(&image_name)
+            .await
+            .context(format!("Failed to pull image {}", image_name))?;
     }
 
     Ok(())
@@ -162,7 +167,10 @@ pub async fn create_network_if_not_exists(
         check_duplicate: true,
         ..Default::default()
     };
-    docker.create_network(options).await?;
+    docker
+        .create_network(options)
+        .await
+        .context("Failed to create network")?;
     Ok(())
 }
 
@@ -285,9 +293,16 @@ server {{
     );
 
     let instance_path = instance_dir.join("nginx");
-    utils::create_path(&instance_path).await?;
+    utils::create_path(&instance_path)
+        .await
+        .context("Failed to create nginx directory")?;
     let nginx_config_path = instance_path.join(format!("{}-nginx.conf", instance_label));
-    fs::write(&nginx_config_path, nginx_config).await?;
+    fs::write(&nginx_config_path, nginx_config)
+        .await
+        .context(format!(
+            "Failed to write nginx config to {:?}",
+            nginx_config_path
+        ))?;
 
     Ok(nginx_config_path)
 }
@@ -327,11 +342,23 @@ define('WP_DEBUG', false);
             .ok_or_else(|| AnyhowError::msg("Instance directory not found"))?,
     );
 
-    utils::create_path(&instance_dir).await?;
+    utils::create_path(&instance_dir)
+        .await
+        .context("Failed to create instance directory")?;
     let wpcli_yml_path = instance_dir.join("wp-cli.local.yml");
     let wpcli_php_path = instance_dir.join("wp-cli.local.php");
-    fs::write(&wpcli_yml_path, wpcli_yml).await?;
-    fs::write(&wpcli_php_path, wpcli_php).await?;
+    fs::write(&wpcli_yml_path, wpcli_yml)
+        .await
+        .context(format!(
+            "Failed to write wp-cli config to {:?}",
+            wpcli_yml_path
+        ))?;
+    fs::write(&wpcli_php_path, wpcli_php)
+        .await
+        .context(format!(
+            "Failed to write wp-cli config to {:?}",
+            wpcli_php_path
+        ))?;
 
     Ok(())
 }
@@ -407,7 +434,12 @@ pub async fn parse_instance_data(
         adminer_port: *adminer_port,
     };
 
-    fs::write(&instance_dir, toml::to_string(&instance_data)?).await?;
+    fs::write(&instance_dir, toml::to_string(&instance_data)?)
+        .await
+        .context(format!(
+            "Failed to write instance data to {:?}",
+            instance_dir
+        ))?;
     info!("Instance data written to {:?}", instance_dir);
 
     Ok(instance_data)
