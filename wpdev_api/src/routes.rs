@@ -12,7 +12,7 @@ use uuid::Uuid;
 use wpdev_core::docker::container::{ContainerEnvVars, InstanceContainer};
 use wpdev_core::docker::instance::Instance;
 
-#[post("/instances/create", format = "json", data = "<env_vars>")]
+#[post("/instances/create", data = "<env_vars>")]
 pub async fn create_instance(
     env_vars: Option<Json<ContainerEnvVars>>,
 ) -> Result<Json<Instance>, Custom<String>> {

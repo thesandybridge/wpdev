@@ -1,0 +1,108 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WPDEV - Instance Management</title>
+    <script src="/static/htmx.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #303030; }
+        .container { margin-top: 20px; }
+        button, input { margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<h1>WPDEV Instance Management</h1>
+
+<!-- Create Instance Form -->
+<div class="container">
+    <h2>Create Instance</h2>
+    <form id="create-instance-form"
+        hx-post="http://{{ api_url }}/api/instances/create"
+        hx-target="#instances-list"
+        hx-headers='{"Content-Type": "application/json"}'
+        hx-include="[name='instanceData']">
+        <input type="text" name="instanceData" placeholder="Instance Data">
+        <button type="submit">Create Instance</button>
+    </form>
+</div>
+
+<!-- Instances List -->
+<div class="container">
+    <h2>Instances</h2>
+    <div id="instances-list">
+        <!-- Instances will be automatically loaded here -->
+        <p>Loading instances...</p>
+    </div>
+</div>
+
+<script>
+const api_url = "{{ api_url }}";
+
+function createInstance() {
+    const instanceData = document.querySelector('input[name="instanceData"]').value;
+    fetch(`http://${api_url}/api/instances/create`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ instanceData })
+    })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Instance created:', data);
+            fetchInstances();
+        })
+        .catch(error => {
+            console.error('Error creating instance:', error);
+        });
+}
+
+async function fetchInstances() {
+    fetch(`http://${api_url}/api/instances/inspect_all`)
+        .then(response => response.json())
+        .then(data => {
+            const instancesList = document.getElementById('instances-list');
+            let htmlContent = '';
+            data.forEach(instance => {
+                console.log('Instance:', instance);
+                htmlContent += `
+                    <div data-id='${instance.uuid}'>
+                        <h3>${instance.wordpress_data.site_title}</h3>
+                        <p>Status: ${instance.status}</p>
+                    </div>`;
+            });
+            instancesList.innerHTML = htmlContent;
+        })
+        .catch(error => {
+            console.error('Error fetching instances:', error);
+            document.getElementById('instances-list').innerHTML = '<p>Error loading instances.</p>';
+        });
+}
+
+const ws = new WebSocket(`ws://${api_url}/api/instances/ws`);
+
+async function handleWebSocketEvent(event) {
+    console.log('WebSocket message received:', event.data);
+    await fetchInstances();
+}
+
+ws.onopen = function() {
+    console.log('WebSocket connection established');
+    fetchInstances();
+};
+
+ws.onmessage = handleWebSocketEvent;
+
+ws.onerror = function(error) {
+    console.error('WebSocket error:', error);
+};
+
+ws.onclose = function(event) {
+    console.log('WebSocket connection closed:', event);
+};
+</script>
+
+</body>
+</html>
+

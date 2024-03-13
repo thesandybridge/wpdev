@@ -1,0 +1,116 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WPDEV - Instance Management</title>
+    <script src="./htmx.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #303030; }
+        .container { margin-top: 20px; }
+        button, input { margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<h1>WPDEV Instance Management</h1>
+
+<!-- Create Instance Form -->
+<div class="container">
+    <h2>Create Instance</h2>
+    <form id="create-instance-form" action="#" hx-target="#instances-list" hx-headers='{"Content-Type": "application/json"}' hx-include="[name='instanceData']">
+        <input type="text" name="instanceData" placeholder="Instance Data" required>
+        <button type="submit">Create Instance</button>
+    </form>
+</div>
+
+<!-- Instances List -->
+<div class="container">
+    <h2>Instances</h2>
+    <div id="instances-list">
+        <!-- Instances will be automatically loaded here -->
+        <p>Loading instances...</p>
+    </div>
+</div>
+
+<script>
+const api_url = "127.0.0.1:8000";
+
+function setFormAction() {
+    const form = document.getElementById('create-instance-form');
+    form.setAttribute('hx-post', `${api_url}/api/instances/create`);
+}
+
+function createInstance() {
+    const instanceData = document.querySelector('input[name="instanceData"]').value;
+    fetch(`http://${api_url}/api/instances/create`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ instanceData })
+    })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Instance created:', data);
+            fetchInstances();
+        })
+        .catch(error => {
+            console.error('Error creating instance:', error);
+        });
+}
+
+function fetchInstances() {
+    fetch(`http://${api_url}/api/instances/inspect_all`)
+        .then(response => response.json())
+        .then(data => {
+            const instancesList = document.getElementById('instances-list');
+            let htmlContent = '';
+            data.forEach(instance => {
+                console.log('Instance:', instance);
+                htmlContent += `
+                    <div data-id='${instance.uuid}'>
+                        <h3>${instance.wordpress_data.site_title}</h3>
+                        <p>Status: ${instance.status}</p>
+                    </div>`;
+            });
+            instancesList.innerHTML = htmlContent;
+        })
+        .catch(error => {
+            console.error('Error fetching instances:', error);
+            document.getElementById('instances-list').innerHTML = '<p>Error loading instances.</p>';
+        });
+}
+
+const ws = new WebSocket(`ws://${api_url}/api/instances/ws`);
+
+ws.onopen = function() {
+    console.log('WebSocket connection established');
+    fetchInstances();
+};
+
+ws.onmessage = function(event) {
+    // Assuming the server sends a specific message that indicates the instances list should be refreshed
+    console.log('WebSocket message received:', event.data);
+    // Check if the message indicates a change that requires refreshing the instances list
+    // This condition depends on how your server messages are structured
+    // For demonstration, we'll refresh the list for any message received
+    fetchInstances();
+};
+
+ws.onerror = function(error) {
+    console.error('WebSocket error:', error);
+};
+
+ws.onclose = function(event) {
+    fetchInstances();
+    console.log('WebSocket connection closed:', event);
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    setFormAction();
+});
+</script>
+
+</body>
+</html>
+
