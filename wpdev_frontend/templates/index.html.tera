@@ -20,14 +20,14 @@
         hx-target="#instances-list"
         >Create Instance</button>
 
-    <button hx-post="/delete_instance"
+    <button hx-delete="/delete_instances"
             hx-target="#instances-list"
-            hx-swap="outerHTML">Delete All</button>
+            hx-swap="innerHTML">Delete All</button>
 </div>
 
 <div class="container">
     <h2>Instances</h2>
-    <div id="instances-list" hx-get="/instances_list" hx-trigger="load">
+    <div id="instances-list" hx-get="/list_all_instances" hx-trigger="load">
         <!-- Dynamic content from instances.html.tera will be loaded here -->
     </div>
 </div>

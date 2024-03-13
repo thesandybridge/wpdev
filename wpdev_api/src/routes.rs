@@ -34,7 +34,7 @@ pub async fn create_instance(
 pub async fn inspect_instance(instance_uuid: &str) -> Result<Json<Instance>, Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::inspect(&docker, wpdev_core::NETWORK_NAME, instance_uuid).await {
+    match Instance::inspect(&docker, instance_uuid).await {
         Ok(instance) => Ok(Json(instance)),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }

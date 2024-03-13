@@ -65,7 +65,7 @@ pub async fn delete_all_instances() -> Result<Json, AnyhowError> {
 
 pub async fn inspect_instance(uuid: &String) -> Result<Json, AnyhowError> {
     let docker = Docker::connect_with_defaults()?;
-    match Instance::inspect(&docker, wpdev_core::NETWORK_NAME, uuid).await {
+    match Instance::inspect(&docker, uuid).await {
         Ok(instance) => Ok(serde_json::to_value(instance)?),
         Err(e) => Err(AnyhowError::from(e)),
     }

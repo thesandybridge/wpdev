@@ -61,11 +61,18 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::resource("/instances_list").route(web::get().to(api::inspect_all_instances)),
             )
-            .service(web::resource("/instances/{id}").route(web::get().to(api::inspect_instance)))
+            .service(web::resource("/list_all_instances").route(web::get().to(api::inspect_all)))
+            .service(
+                web::resource("/list_instance/{id}").route(web::get().to(api::inspect_instance)),
+            )
             .service(web::resource("/create_instance").route(web::post().to(api::create_instance)))
             .service(
-                web::resource("/delete_instance")
+                web::resource("/delete_instances")
                     .route(web::delete().to(api::delete_all_instances)),
+            )
+            .service(
+                web::resource("/delete_instance/{id}")
+                    .route(web::delete().to(api::delete_instance)),
             )
             .service(web::resource("/static/htmx.min.js").route(web::get().to(htmx_js)))
             .service(fs::Files::new("/static", "./static"))

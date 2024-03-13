@@ -409,13 +409,8 @@ impl Instance {
                 ))?;
         }
         instance.status = InstanceStatus::Stopped;
-        match delete_all {
-            true => {
-                purge_instances(InstanceSelection::All).await?;
-            }
-            false => {
-                purge_instances(InstanceSelection::One(instance_id.to_string())).await?;
-            }
+        if !delete_all {
+            purge_instances(InstanceSelection::One(instance_id.to_string())).await?;
         }
         Ok(InstanceInfo {
             uuid: instance.uuid.clone(),
@@ -431,16 +426,12 @@ impl Instance {
         for (instance_id, _) in instances {
             Self::delete(docker, &instance_id, true).await?;
         }
-
+        purge_instances(InstanceSelection::All).await?;
         Ok(())
     }
 
-    pub async fn inspect(
-        docker: &Docker,
-        network_prefix: &str,
-        instance_id: &str,
-    ) -> Result<Instance> {
-        let instance_name = format!("{}-{}", network_prefix, instance_id);
+    pub async fn inspect(docker: &Docker, instance_id: &str) -> Result<Instance> {
+        let instance_name = format!("{}", instance_id);
         let instance = Self::list(docker, &instance_name)
             .await
             .context("Failed to list instance")?;
@@ -489,16 +480,16 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
-            let p = &config_dir.join(&instance_uuid);
+            let p = &config_dir;
             let path = p.to_str().context("Instance directory not found")?;
-            let network_name = format!("{}-{}", crate::NETWORK_NAME, instance_uuid);
+            let instance_path = format!("{}/{}", path, instance_uuid);
             docker
-                .remove_network(&network_name)
+                .remove_network(&instance_uuid)
                 .await
-                .context(format!("Failed to remove network {}", network_name))?;
-            fs::remove_dir_all(&path)
+                .context(format!("Failed to remove network {}", instance_uuid))?;
+            fs::remove_dir_all(&instance_path)
                 .await
-                .context(format!("Error removing directory: {}", path))?;
+                .context(format!("Error removing directory: {}", instance_path))?;
             Ok(())
         }
     }
