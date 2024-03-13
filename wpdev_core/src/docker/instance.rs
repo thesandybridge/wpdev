@@ -285,7 +285,6 @@ impl Instance {
                 Err(e) => {
                     info!("Failed to process network: {}", full_network_name);
                     info!("Error: {}", e);
-                    println!("Error: {}", e);
                 }
             }
         }

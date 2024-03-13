@@ -124,8 +124,6 @@ pub async fn delete_instance(path: web::Path<String>) -> Result<HttpResponse> {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
 
-    println!("Deleting instance: {}", instance_uuid);
-
     match Instance::delete(&docker, &instance_uuid, false).await {
         Ok(_) => {
             return inspect_all().await;

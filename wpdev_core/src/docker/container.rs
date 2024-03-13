@@ -219,31 +219,13 @@ impl InstanceContainer {
         {
             Ok(response) => {
                 let container_id = response.id;
-                println!(
-                    "{} container successfully created: {:?}",
-                    container_image.to_string(),
-                    container_id
-                );
 
                 match Self::get_status(&docker, &container_id).await {
                     Ok(status) => Ok((container_id, status)),
-                    Err(err) => {
-                        println!(
-                            "Failed to fetch status for container {}: {:?}",
-                            container_id, err
-                        );
-                        Err(err.into())
-                    }
+                    Err(err) => Err(err.into()),
                 }
             }
-            Err(err) => {
-                println!(
-                    "Error creating {} container: {:?}",
-                    container_image.to_string(),
-                    err
-                );
-                Err(err.into())
-            }
+            Err(err) => Err(err.into()),
         }
     }
 
