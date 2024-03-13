@@ -25,7 +25,7 @@ pub async fn create_instance(
 
 pub async fn start_instance(uuid: &String) -> Result<Json, AnyhowError> {
     let docker = Docker::connect_with_defaults()?;
-    match Instance::start(&docker, wpdev_core::NETWORK_NAME, uuid).await {
+    match Instance::start(&docker, uuid).await {
         Ok(instance) => Ok(serde_json::to_value(instance)?),
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -33,7 +33,7 @@ pub async fn start_instance(uuid: &String) -> Result<Json, AnyhowError> {
 
 pub async fn stop_instance(uuid: &String) -> Result<Json, AnyhowError> {
     let docker = Docker::connect_with_defaults()?;
-    match Instance::stop(&docker, wpdev_core::NETWORK_NAME, uuid).await {
+    match Instance::stop(&docker, uuid).await {
         Ok(instance) => Ok(serde_json::to_value(instance)?),
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -41,7 +41,7 @@ pub async fn stop_instance(uuid: &String) -> Result<Json, AnyhowError> {
 
 pub async fn restart_instance(uuid: &String) -> Result<Json, AnyhowError> {
     let docker = Docker::connect_with_defaults()?;
-    match Instance::restart(&docker, wpdev_core::NETWORK_NAME, uuid).await {
+    match Instance::restart(&docker, uuid).await {
         Ok(instance) => Ok(serde_json::to_value(instance)?),
         Err(e) => Err(AnyhowError::from(e)),
     }
@@ -49,7 +49,7 @@ pub async fn restart_instance(uuid: &String) -> Result<Json, AnyhowError> {
 
 pub async fn delete_instance(uuid: &String) -> Result<Json, AnyhowError> {
     let docker = Docker::connect_with_defaults()?;
-    match Instance::delete(&docker, wpdev_core::NETWORK_NAME, uuid).await {
+    match Instance::delete(&docker, uuid).await {
         Ok(instance) => Ok(serde_json::to_value(instance)?),
         Err(e) => Err(AnyhowError::from(e)),
     }

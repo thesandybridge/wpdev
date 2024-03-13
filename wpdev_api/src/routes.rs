@@ -54,7 +54,7 @@ pub async fn inspect_all_instances() -> Result<Json<Vec<Instance>>, Custom<Strin
 pub async fn start_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::start(&docker, wpdev_core::NETWORK_NAME, instance_uuid).await {
+    match Instance::start(&docker, instance_uuid).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
@@ -64,7 +64,7 @@ pub async fn start_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
 pub async fn stop_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::stop(&docker, wpdev_core::NETWORK_NAME, instance_uuid).await {
+    match Instance::stop(&docker, instance_uuid).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
@@ -74,7 +74,7 @@ pub async fn stop_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
 pub async fn restart_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::restart(&docker, wpdev_core::NETWORK_NAME, instance_uuid).await {
+    match Instance::restart(&docker, instance_uuid).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
@@ -114,7 +114,7 @@ pub async fn restart_all_instances() -> Result<(), Custom<String>> {
 pub async fn delete_instance(instance_uuid: &str) -> Result<(), Custom<String>> {
     let docker = Docker::connect_with_defaults()
         .map_err(|e| Custom(Status::InternalServerError, e.to_string()))?;
-    match Instance::delete(&docker, wpdev_core::NETWORK_NAME, instance_uuid).await {
+    match Instance::delete(&docker, &instance_uuid).await {
         Ok(_) => Ok(()),
         Err(e) => Err(Custom(Status::InternalServerError, e.to_string())),
     }
