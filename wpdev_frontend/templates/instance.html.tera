@@ -1,29 +1,45 @@
 <div class="instance" data-id="{{ instance.uuid }}">
     <h3>{{ instance.wordpress_data.site_title }}</h3>
     <p>Status: {{ instance.status }}</p>
-    <button
-        hx-delete="/delete_instance/{{ instance.uuid }}"
-        hx-target="#instances-list"
-    >Delete</button>
-    <button
-        hx-post="/start_instance/{{ instance.uuid }}"
-        hx-target="#instances-list"
-        {% if instance.status == "Running" %}
+    {% if instance.status == "Running" %}
+    <div class="instance-details">
+        <p>URL: <a href="{{ instance.wordpress_data.site_url }}" target="_blank">{{ instance.wordpress_data.site_url }}</a></p>
+        <p>Adminer URL: <a href="{{ instance.wordpress_data.adminer_url }}" target="_blank">{{ instance.wordpress_data.adminer_url }}</a></p>
+    </div>
+    {% endif %}
+    <div class="instance-containers">
+        {% for container in instance.containers %}
+        <div class="instance-container" data-id="{{ container.container_id }}">
+            <h4>{{ container.container_image }}</h4>
+            <p>Status: {{ container.container_status }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="instance-controls">
+        <button
+            hx-delete="/delete_instance/{{ instance.uuid }}"
+            hx-target="#instances-list"
+        >Delete</button>
+        <button
+            hx-post="/start_instance/{{ instance.uuid }}"
+            hx-target="#instances-list"
+            {% if instance.status == "Running" %}
             disabled
-        {% endif %}
-    >Start</button>
-    <button
-        hx-post="/stop_instance/{{ instance.uuid }}"
-        hx-target="#instances-list"
-        {% if instance.status == "Stopped" %}
+            {% endif %}
+        >Start</button>
+        <button
+            hx-post="/stop_instance/{{ instance.uuid }}"
+            hx-target="#instances-list"
+            {% if instance.status == "Stopped" %}
             disabled
-        {% endif %}
-    >Stop</button>
-    <button
-        hx-post="/restart_instance/{{ instance.uuid }}"
-        hx-target="#instances-list"
-        {% if instance.status == "Stopped" %}
+            {% endif %}
+        >Stop</button>
+        <button
+            hx-post="/restart_instance/{{ instance.uuid }}"
+            hx-target="#instances-list"
+            {% if instance.status == "Stopped" %}
             disabled
-        {% endif %}
-    >Restart</button>
+            {% endif %}
+        >Restart</button>
+    </div>
 </div>

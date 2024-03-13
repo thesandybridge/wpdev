@@ -45,6 +45,13 @@ async fn htmx_js() -> Result<HttpResponse, Error> {
         .body(asset.data.into_owned()))
 }
 
+async fn styles() -> Result<HttpResponse, Error> {
+    let asset = StaticAssets::get("style.css").expect("File not found");
+    Ok(HttpResponse::Ok()
+        .content_type("text/css")
+        .body(asset.data.into_owned()))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
@@ -91,6 +98,7 @@ async fn main() -> std::io::Result<()> {
                     .route(web::post().to(api::restart_all_instances)),
             )
             .service(web::resource("/static/htmx.min.js").route(web::get().to(htmx_js)))
+            .service(web::resource("/static/style.css").route(web::get().to(styles)))
             .service(fs::Files::new("/static", "./static"))
     })
     .bind("127.0.0.1:8080")?

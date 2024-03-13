@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <title>WPDEV - Instance Management</title>
     <script src="/static/htmx.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background-color: #303030; }
-        .container { margin-top: 20px; }
-        button, input { margin-top: 10px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
