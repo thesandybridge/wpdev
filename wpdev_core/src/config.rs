@@ -26,23 +26,13 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
 
     let config_path = config_dir.join("config.toml");
 
-    match fs::metadata(&config_path).await {
-        Ok(_) => {
-            let contents = fs::read_to_string(&config_path)
-                .await
-                .context("Failed to read config file")?;
-            let config: AppConfig =
-                toml::from_str(&contents).context("Failed to parse config file")?;
+    match fs::read_to_string(&config_path).await {
+        Ok(contents) => {
+            let config: AppConfig = toml::from_str(&contents)
+                .with_context(|| format!("Failed to parse config file at {:?}", config_path))?;
             Ok(config)
         }
-        Err(_) => {
-            let config = AppConfig::default();
-            let toml = toml::to_string(&config).context("Failed to serialize default config")?;
-            fs::write(&config_path, toml)
-                .await
-                .context("Failed to write default config file")?;
-            Ok(config)
-        }
+        Err(_) => Ok(AppConfig::default()),
     }
 }
 

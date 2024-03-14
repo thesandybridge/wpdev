@@ -60,6 +60,17 @@ fn cli() -> Command {
         )
 }
 
+async fn pretty_print(language: &str, input: &str) -> Result<()> {
+    let config = config::read_or_create_config().await?;
+    let color = config.cli_colored_output;
+    let mut printer = PrettyPrinter::new();
+    let printer = printer.input_from_bytes(input.as_bytes());
+    let printer = printer.language(language);
+    let printer = printer.colored_output(color);
+    printer.print()?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), AnyhowError> {
     config::pull_docker_images_from_config().await?;
@@ -73,12 +84,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("start", start_matches)) => {
                 let id = start_matches.get_one("ID").unwrap();
@@ -86,11 +92,7 @@ async fn main() -> Result<(), AnyhowError> {
                     utils::with_spinner(commands::start_instance(id), "Starting instance").await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("stop", stop_matches)) => {
                 let id = stop_matches.get_one("ID").unwrap();
@@ -98,11 +100,7 @@ async fn main() -> Result<(), AnyhowError> {
                     utils::with_spinner(commands::stop_instance(id), "Stopping instance").await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("restart", restart_matches)) => {
                 let id = restart_matches.get_one("ID").unwrap();
@@ -111,11 +109,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("delete", delete_matches)) => {
                 let id = delete_matches.get_one("ID").unwrap();
@@ -123,11 +117,7 @@ async fn main() -> Result<(), AnyhowError> {
                     utils::with_spinner(commands::delete_instance(id), "Deleting instance").await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("start_all", _)) => {
                 let instance =
@@ -135,11 +125,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("stop_all", _)) => {
                 let instance =
@@ -147,11 +133,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("restart_all", _)) => {
                 let instance = utils::with_spinner(
@@ -161,11 +143,7 @@ async fn main() -> Result<(), AnyhowError> {
                 .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("purge", _)) => {
                 let instance =
@@ -173,11 +151,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("status", status_matches)) => {
                 let id = status_matches.get_one("ID").unwrap();
@@ -186,11 +160,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             Some(("list", _)) => {
                 let instance =
@@ -198,11 +168,7 @@ async fn main() -> Result<(), AnyhowError> {
                         .await?;
                 println!("\n");
                 let instance_str = serde_json::to_string_pretty(&instance)?;
-                let instance_bytes = instance_str.as_bytes();
-                PrettyPrinter::new()
-                    .input_from_bytes(instance_bytes)
-                    .language("json")
-                    .print()?;
+                pretty_print("json", &instance_str).await?;
             }
             _ => println!("Invalid command. Please use <help> to a see full list of commands."),
         },
