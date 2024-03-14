@@ -1,9 +1,11 @@
 use actix_cors::Cors;
 use actix_files as fs;
 use actix_web::{web, App, Error, HttpResponse, HttpServer};
+use anyhow::Result;
 use rust_embed::RustEmbed;
 use serde::Serialize;
 use tera::{Context, Tera};
+use wpdev_core::config;
 
 mod api;
 
@@ -23,13 +25,19 @@ struct StaticAssets;
 async fn index() -> actix_web::Result<HttpResponse> {
     let asset = TemplateAssets::get("index.html.tera").expect("Template not found");
     let template_str = std::str::from_utf8(asset.data.as_ref()).expect("Failed to decode template");
+    let config = config::read_or_create_config()
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let mut tera = Tera::default();
     tera.add_raw_template("index.html.tera", template_str)
         .expect("Failed to load template");
 
     let mut context = Context::new();
-    context.insert("api_url", "127.0.0.1:8000");
+    context.insert(
+        "api_url",
+        &format!("http://{}:{}", config.api_ip, config.api_port),
+    );
 
     let rendered = tera
         .render("index.html.tera", &context)
@@ -53,17 +61,11 @@ async fn styles() -> Result<HttpResponse, Error> {
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<()> {
+    let config = config::read_or_create_config().await?;
+    let host = format!("http://{}:{}", config.web_app_ip, config.web_app_port);
     HttpServer::new(|| {
-        let cors = Cors::default()
-            .allowed_origin("http://127.0.0.1:8080")
-            .allowed_methods(vec!["GET", "POST", "OPTIONS", "DELETE"])
-            .allowed_headers(vec!["Content-Type", "*"])
-            .supports_credentials()
-            .max_age(3600);
-
         App::new()
-            .wrap(cors)
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::resource("/list_all_instances").route(web::get().to(api::inspect_all)))
             .service(
@@ -101,7 +103,9 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/static/style.css").route(web::get().to(styles)))
             .service(fs::Files::new("/static", "./static"))
     })
-    .bind("127.0.0.1:8080")?
+    .bind(&host)?
     .run()
-    .await
+    .await?;
+
+    Ok(())
 }
