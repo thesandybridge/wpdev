@@ -2,6 +2,7 @@ use crate::config;
 use crate::docker::container;
 use crate::utils;
 use anyhow::{Context, Result};
+use log::info;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -13,6 +14,7 @@ pub async fn configure_wordpress_container(
     labels: &HashMap<String, String>,
     env_vars: &EnvVars,
 ) -> Result<(String, ContainerStatus)> {
+    info!("Configuring wordpress container");
     let wordpress_config_dir = instance_path.join("wordpress");
     let wordpress_path = utils::create_path(&wordpress_config_dir)
         .await
@@ -37,6 +39,7 @@ pub async fn configure_mysql_container(
     labels: &HashMap<String, String>,
     env_vars: &EnvVars,
 ) -> Result<(String, ContainerStatus)> {
+    info!("Configuring mysql container");
     let mysql_config_dir = instance_path.join("mysql");
     let mysql_socket_path = utils::create_path(&mysql_config_dir)
         .await
@@ -62,6 +65,7 @@ pub async fn configure_adminer_container(
     env_vars: &EnvVars,
     adminer_port: u32,
 ) -> Result<(String, ContainerStatus)> {
+    info!("Configuring adminer container");
     let (ids, status) = container::InstanceContainer::new(
         instance_label,
         instance_path,
@@ -82,6 +86,7 @@ pub async fn configure_nginx_container(
     labels: &HashMap<String, String>,
     nginx_port: u32,
 ) -> Result<(String, ContainerStatus)> {
+    info!("Configuring nginx container");
     let nginx_config_path = config::generate_nginx_config(
         instance_label,
         nginx_port,

@@ -17,7 +17,7 @@ pub const WORDPRESS_CLI_IMAGE: &str = "wordpress:cli";
 pub struct AppConfig {
     pub custom_root: String,
     pub docker_images: Vec<String>,
-    pub enable_logging: bool,
+    pub log_level: String,
     pub enable_frontend: bool,
     pub site_url: String,
     pub adminer_url: String,
@@ -40,7 +40,7 @@ impl Default for AppConfig {
                 ADMINER_IMAGE.to_string(),
                 WORDPRESS_CLI_IMAGE.to_string(),
             ],
-            enable_logging: true,
+            log_level: String::from("none"),
             enable_frontend: false,
             site_url: String::from("http://localhost"),
             adminer_url: String::from("http://localhost"),

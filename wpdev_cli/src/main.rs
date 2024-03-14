@@ -4,8 +4,10 @@ mod commands;
 use wpdev_core::config;
 use wpdev_core::utils;
 
+use anyhow::Context;
 use bat::PrettyPrinter;
 use clap::{Parser, Subcommand};
+use env_logger;
 use serde_json;
 
 /// A CLI for managing WordPress development environments.
@@ -80,6 +82,11 @@ async fn pretty_print(language: &str, input: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<(), AnyhowError> {
+    let config = config::read_or_create_config()
+        .await
+        .context("Failed to read or create config")?;
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level))
+        .init();
     config::pull_docker_images_from_config().await?;
     let cli = Cli::parse();
     match cli.command {

@@ -8,6 +8,7 @@ use tera::{Context, Tera};
 use wpdev_core::config;
 
 mod api;
+use env_logger;
 
 #[derive(Serialize)]
 struct IndexContext {
@@ -64,6 +65,8 @@ async fn styles() -> Result<HttpResponse, Error> {
 async fn main() -> Result<()> {
     let config = config::read_or_create_config().await?;
     let host_bind = format!("{}:{}", config.web_app_ip, config.web_app_port);
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level))
+        .init();
     let cors_allowed_origin = format!("http://{}", host_bind);
     HttpServer::new(move || {
         let cors = Cors::default()
