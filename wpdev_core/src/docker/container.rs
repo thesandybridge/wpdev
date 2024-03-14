@@ -5,6 +5,7 @@ use bollard::container::{
     StartContainerOptions, StopContainerOptions,
 };
 use bollard::models::{HostConfig, PortBinding};
+use bollard::models::{RestartPolicy, RestartPolicyNameEnum};
 use bollard::Docker;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -188,6 +189,10 @@ impl InstanceContainer {
             } else {
                 Some(port_bindings)
             },
+            restart_policy: Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                maximum_retry_count: Some(3),
+            }),
             ..Default::default()
         };
 
