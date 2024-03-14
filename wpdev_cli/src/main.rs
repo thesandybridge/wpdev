@@ -63,10 +63,14 @@ fn cli() -> Command {
 async fn pretty_print(language: &str, input: &str) -> Result<()> {
     let config = config::read_or_create_config().await?;
     let color = config.cli_colored_output;
+    let theme = config.cli_theme;
     let mut printer = PrettyPrinter::new();
-    let printer = printer.input_from_bytes(input.as_bytes());
-    let printer = printer.language(language);
-    let printer = printer.colored_output(color);
+    printer.input_from_bytes(input.as_bytes());
+    printer.language(language);
+    printer.colored_output(color);
+    if let Some(theme) = theme {
+        printer.theme(theme);
+    }
     printer.print()?;
     Ok(())
 }

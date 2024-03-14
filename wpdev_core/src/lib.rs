@@ -22,6 +22,7 @@ pub struct AppConfig {
     pub site_url: String,
     pub adminer_url: String,
     pub cli_colored_output: bool,
+    pub cli_theme: Option<String>,
     pub web_app_ip: IpAddr,
     pub web_app_port: u16,
     pub api_ip: IpAddr,
@@ -48,6 +49,7 @@ impl Default for AppConfig {
             web_app_port: 8080,
             api_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             api_port: 8001,
+            cli_theme: None,
         }
     }
 }
