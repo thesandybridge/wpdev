@@ -35,11 +35,8 @@ enum Commands {
     Restart(InstanceArgs),
     /// Prune instances. If an ID is provided, prune that instance. If -a is provided, prune all instances.
     Prune(InstanceArgs),
-    /// Get the status of an instance
-    Status {
-        #[clap(long)]
-        id: String,
-    },
+    /// Get the status of an instance or all instances.
+    Status(InstanceArgs),
 }
 
 #[derive(Args, Debug)]
@@ -174,13 +171,21 @@ async fn main() -> Result<()> {
                 pretty_print("json", &instance_str).await?;
             }
         }
-        Commands::Status { id } => {
-            let instance =
-                utils::with_spinner(commands::inspect_instance(&id), "Getting instance status")
-                    .await?;
-            println!("\n");
-            let instance_str = serde_json::to_string_pretty(&instance)?;
-            pretty_print("json", &instance_str).await?;
+        Commands::Status(args) => {
+            if args.all {
+                let instance =
+                    utils::with_spinner(commands::get_all_statuses(), "Getting status").await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            } else if let Some(id) = args.id {
+                let instance =
+                    utils::with_spinner(commands::get_status(&id), "Getting instance status")
+                        .await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            }
         }
     }
 

@@ -102,3 +102,19 @@ pub(crate) async fn start_all_instances() -> Result<Json, AnyhowError> {
         Err(e) => Err(AnyhowError::from(e)),
     }
 }
+
+pub(crate) async fn get_status(uuid: &String) -> Result<Json, AnyhowError> {
+    let docker = Docker::connect_with_defaults()?;
+    match Instance::get_status(&docker, uuid).await {
+        Ok(status) => Ok(serde_json::to_value(status)?),
+        Err(e) => Err(AnyhowError::from(e)),
+    }
+}
+
+pub(crate) async fn get_all_statuses() -> Result<Json, AnyhowError> {
+    let docker = Docker::connect_with_defaults()?;
+    match Instance::get_all_statuses(&docker, wpdev_core::NETWORK_NAME).await {
+        Ok(statuses) => Ok(serde_json::to_value(statuses)?),
+        Err(e) => Err(AnyhowError::from(e)),
+    }
+}

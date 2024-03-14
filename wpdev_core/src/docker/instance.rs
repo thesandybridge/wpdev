@@ -488,6 +488,43 @@ impl Instance {
             .map(|(_, instance)| instance)
             .collect())
     }
+
+    pub async fn get_status(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
+        info!("Starting to get status for instance: {}", instance_id);
+        let instance = Self::list(docker, &instance_id)
+            .await
+            .context("Failed to list instance")?;
+        Ok(InstanceInfo {
+            uuid: instance.uuid.clone(),
+            status: format!("{:?}", instance.status),
+        })
+    }
+
+    pub async fn get_all_statuses(
+        docker: &Docker,
+        network_prefix: &str,
+    ) -> Result<Vec<InstanceInfo>> {
+        info!(
+            "Starting to get statuses for all instances for network prefix: {}",
+            network_prefix
+        );
+        let instances = Self::list_all(docker, network_prefix)
+            .await
+            .context("Failed to list instances")?;
+
+        let restart_instance_futures = instances.values().map(|instance| async move {
+            Self::get_status(docker, &instance.uuid)
+                .await
+                .with_context(|| format!("Failed to restart instance {}", &instance.uuid))
+        });
+
+        let results: Result<Vec<_>> = join_all(restart_instance_futures)
+            .await
+            .into_iter()
+            .collect();
+
+        results
+    }
 }
 
 async fn purge_instances(instance: InstanceSelection) -> Result<()> {
