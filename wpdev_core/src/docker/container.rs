@@ -124,8 +124,6 @@ impl ContainerStatus {
     }
 }
 
-pub type ContainerInfo = (ContainerOperation, &'static str);
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceContainer {
     pub container_id: String,
@@ -293,7 +291,7 @@ impl InstanceContainer {
     }
 }
 
-pub async fn handle_container(
+async fn handle_container(
     docker: &Docker,
     container_id: &str,
     operation: ContainerOperation,

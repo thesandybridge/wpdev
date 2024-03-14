@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crate::docker::container::{ContainerImage, ContainerStatus, EnvVars};
 
-pub async fn configure_wordpress_container(
+pub(crate) async fn configure_wordpress_container(
     instance_label: &str,
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
@@ -33,7 +33,7 @@ pub async fn configure_wordpress_container(
     Ok((ids, status))
 }
 
-pub async fn configure_mysql_container(
+pub(crate) async fn configure_mysql_container(
     instance_label: &str,
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
@@ -58,7 +58,7 @@ pub async fn configure_mysql_container(
     Ok((ids, status))
 }
 
-pub async fn configure_adminer_container(
+pub(crate) async fn configure_adminer_container(
     instance_label: &str,
     instance_path: &PathBuf,
     labels: &HashMap<String, String>,
@@ -80,7 +80,7 @@ pub async fn configure_adminer_container(
     Ok((ids, status))
 }
 
-pub async fn configure_nginx_container(
+pub(crate) async fn configure_nginx_container(
     instance_path: &PathBuf,
     instance_label: &str,
     labels: &HashMap<String, String>,

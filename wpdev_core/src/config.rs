@@ -111,7 +111,7 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
 ///
 /// * `docker` - &Docker
 /// * `network_name` - name of the network
-pub async fn create_network_if_not_exists(
+pub(crate) async fn create_network_if_not_exists(
     docker: &Docker,
     network_prefix: &str,
     id: &str,
@@ -154,7 +154,7 @@ fn merge_env_vars(
         .collect()
 }
 
-pub async fn initialize_env_vars(
+pub(crate) async fn initialize_env_vars(
     instance_label: &str,
     user_env_vars: &ContainerEnvVars,
 ) -> Result<EnvVars, AnyhowError> {
@@ -215,7 +215,7 @@ pub async fn initialize_env_vars(
     })
 }
 
-pub async fn generate_nginx_config(
+pub(crate) async fn generate_nginx_config(
     instance_label: &str,
     nginx_port: u32,
     adminer_name: &str,
@@ -271,7 +271,7 @@ server {{
     Ok(nginx_config_path)
 }
 
-pub async fn generate_wpcli_config(
+pub(crate) async fn generate_wpcli_config(
     config: &crate::AppConfig,
     instance_label: &str,
     home_dir: &PathBuf,
@@ -359,7 +359,7 @@ pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<Instan
     Ok(instance_data)
 }
 
-pub async fn parse_instance_data(
+pub(crate) async fn parse_instance_data(
     env_vars: &EnvVars,
     nginx_port: &u32,
     adminer_port: &u32,

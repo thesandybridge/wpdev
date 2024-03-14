@@ -25,7 +25,7 @@ where
     result
 }
 
-pub async fn create_path(path: &PathBuf) -> Result<&PathBuf> {
+pub(crate) async fn create_path(path: &PathBuf) -> Result<&PathBuf> {
     info!("Creating directory at path: {}", path.to_string_lossy());
     fs::create_dir_all(&path).await.context(format!(
         "Failed to create directory at path: {}",
@@ -34,16 +34,7 @@ pub async fn create_path(path: &PathBuf) -> Result<&PathBuf> {
     Ok(path)
 }
 
-pub fn parse_port(port_label: Option<&String>) -> Result<u32> {
-    info!("Parsing port from label: {:?}", port_label);
-    let port = port_label
-        .and_then(|port| port.parse::<u32>().ok())
-        .unwrap_or(0);
-
-    Ok(port)
-}
-
-pub async fn find_free_port() -> Result<u32> {
+pub(crate) async fn find_free_port() -> Result<u32> {
     info!("Finding a free port");
     let listener = TcpListener::bind("127.0.0.1:0").context("Failed to bind to port")?;
     let socket_addr: SocketAddr = listener
@@ -54,7 +45,7 @@ pub async fn find_free_port() -> Result<u32> {
     Ok(u32::from(port))
 }
 
-pub fn create_labels(
+pub(crate) fn create_labels(
     image: ContainerImage,
     hashmap: HashMap<String, String>,
 ) -> HashMap<String, String> {

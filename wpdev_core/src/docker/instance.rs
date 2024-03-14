@@ -490,7 +490,7 @@ impl Instance {
     }
 }
 
-pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
+async fn purge_instances(instance: InstanceSelection) -> Result<()> {
     info!("Starting to purge instances");
     let config = read_or_create_config()
         .await
