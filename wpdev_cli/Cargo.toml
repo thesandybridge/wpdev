@@ -7,7 +7,7 @@ edition = "2021"
 path = "../wpdev_core"
 
 [dependencies]
-clap = "4.4.10"
+clap = { version = "4.4.10", features = ["derive"] }
 anyhow = "1.0.75"
 log = "0.4.20"
 bollard = "0.16.0"

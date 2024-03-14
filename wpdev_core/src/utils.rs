@@ -17,8 +17,7 @@ pub async fn with_spinner<F, T, E>(future: F, message: &str) -> Result<T, E>
 where
     F: Future<Output = Result<T, E>>,
 {
-    io::stdout().flush().unwrap();
-
+    let _ = io::stdout().flush();
     let mut sp = Spinner::new(Spinners::Dots9, message.into());
     let result = future.await;
     sp.stop();

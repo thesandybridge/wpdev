@@ -36,17 +36,6 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     }
 }
 
-/// Check if a Docker image exists locally.
-///
-/// # Arguments
-///
-/// * `image_name` - The name of the image to check for.
-///
-/// # Examples
-///
-/// ```
-/// let image_exists = image_exists("wordpress:latest").await;
-/// ```
 pub async fn image_exists(image_name: &str) -> Result<bool> {
     let docker = Docker::connect_with_defaults()?;
     let options = Some(ListImagesOptions::<String> {
@@ -61,28 +50,6 @@ pub async fn image_exists(image_name: &str) -> Result<bool> {
     }))
 }
 
-/// Pull a Docker image if it does not already exist locally.
-///
-/// # Arguments
-///
-/// * `image_name` - The name of the image to pull.
-///
-/// # Errors
-///
-/// * If the image fails to pull.
-/// * If the image is not found.
-/// * If the image is not valid.
-/// * If the image is not authorized.
-/// * If the image is not available.
-/// * If the image is not ready.
-/// * If the image is not a Docker image.
-///
-///
-/// # Examples
-///
-/// ```
-/// pull_docker_image_if_not_exists("wordpress:latest").await?;
-/// ```
 async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
     let image = image_exists(image_name).await?;
     if !image {

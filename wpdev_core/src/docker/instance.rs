@@ -3,7 +3,7 @@ use bollard::container::ListContainersOptions;
 use bollard::Docker;
 use dirs;
 use futures::future::join_all;
-use log::info;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -299,6 +299,7 @@ impl Instance {
     }
 
     pub async fn start(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
+        info!("Starting to start instance: {}", instance_id);
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
@@ -318,6 +319,10 @@ impl Instance {
     }
 
     pub async fn start_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
+        info!(
+            "Starting to start all instances for network prefix: {}",
+            network_prefix
+        );
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
@@ -334,6 +339,7 @@ impl Instance {
     }
 
     pub async fn stop(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
+        info!("Starting to stop instance: {}", instance_id);
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
@@ -353,6 +359,10 @@ impl Instance {
     }
 
     pub async fn stop_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
+        info!(
+            "Starting to stop all instances for network prefix: {}",
+            network_prefix
+        );
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
@@ -369,6 +379,7 @@ impl Instance {
     }
 
     pub async fn restart(docker: &Docker, instance_id: &str) -> Result<InstanceInfo> {
+        info!("Starting to restart instance: {}", instance_id);
         let mut instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
@@ -388,6 +399,10 @@ impl Instance {
     }
 
     pub async fn restart_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
+        info!(
+            "Starting to restart all instances for network prefix: {}",
+            network_prefix
+        );
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
@@ -407,6 +422,7 @@ impl Instance {
     }
 
     pub async fn delete(docker: &Docker, instance_id: &str, purge: bool) -> Result<InstanceInfo> {
+        info!("Starting to delete instance: {}", instance_id);
         let instance = Self::list(docker, &instance_id)
             .await
             .context("Failed to list instance")?;
@@ -426,6 +442,10 @@ impl Instance {
     }
 
     pub async fn delete_all(docker: &Docker, network_prefix: &str) -> Result<Vec<InstanceInfo>> {
+        info!(
+            "Starting to delete all instances for network prefix: {}",
+            network_prefix
+        );
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
@@ -447,6 +467,7 @@ impl Instance {
     }
 
     pub async fn inspect(docker: &Docker, instance_id: &str) -> Result<Instance> {
+        info!("Starting to inspect instance: {}", instance_id);
         let instance_name = format!("{}", instance_id);
         let instance = Self::list(docker, &instance_name)
             .await
@@ -455,14 +476,22 @@ impl Instance {
     }
 
     pub async fn inspect_all(docker: &Docker, network_prefix: &str) -> Result<Vec<Instance>> {
+        info!(
+            "Starting to inspect all instances for network prefix: {}",
+            network_prefix
+        );
         let instances = Self::list_all(docker, network_prefix)
             .await
             .context("Failed to list instances")?;
-        Ok(instances.values().cloned().collect())
+        Ok(instances
+            .into_iter()
+            .map(|(_, instance)| instance)
+            .collect())
     }
 }
 
 pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
+    info!("Starting to purge instances");
     let config = read_or_create_config()
         .await
         .context("Failed to read config")?;
@@ -470,8 +499,14 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
     let config_dir = home_dir.join(&config.custom_root);
     let docker = Docker::connect_with_defaults().context("Failed to connect to Docker")?;
 
+    if !config_dir.exists() {
+        info!("Instance directory not found");
+        return Ok(());
+    }
+
     match instance {
         InstanceSelection::All => {
+            info!("Pruning all instances");
             let p = &config_dir;
             let path = p.to_str().context("Instance directory not found")?;
             let networks = docker
@@ -479,6 +514,12 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
                 .await
                 .context("Failed to list networks")?;
 
+            if !PathBuf::from(&path).exists() {
+                error!("Instance directory not found");
+                return Ok(());
+            }
+
+            info!("Pruning networks");
             for network in networks.into_iter().filter(|n| {
                 n.name
                     .as_ref()
@@ -490,22 +531,34 @@ pub async fn purge_instances(instance: InstanceSelection) -> Result<()> {
                     .await
                     .context(format!("Failed to remove network {}", full_network_name))?;
             }
+            info!("Networks pruned");
+            info!("Removing instances directory: {}", path);
             fs::remove_dir_all(&path)
                 .await
                 .context(format!("Error removing directory: {}", path))?;
+            info!("Directory removed: {}", path);
             Ok(())
         }
         InstanceSelection::One(instance_uuid) => {
+            info!("Removing instance: {}", instance_uuid);
             let p = &config_dir;
             let path = p.to_str().context("Instance directory not found")?;
             let instance_path = format!("{}/{}", path, instance_uuid);
+            if !PathBuf::from(&instance_path).exists() {
+                error!("Instance directory not found");
+                return Ok(());
+            }
+            info!("Removing network: {}", instance_uuid);
             docker
                 .remove_network(&instance_uuid)
                 .await
                 .context(format!("Failed to remove network {}", instance_uuid))?;
+            info!("Network removed: {}", instance_uuid);
+            info!("Removing directory: {}", instance_path);
             fs::remove_dir_all(&instance_path)
                 .await
                 .context(format!("Error removing directory: {}", instance_path))?;
+            info!("Directory removed: {}", instance_path);
             Ok(())
         }
     }
