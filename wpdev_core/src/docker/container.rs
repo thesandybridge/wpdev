@@ -5,8 +5,9 @@ use bollard::container::{
     StartContainerOptions, StopContainerOptions,
 };
 use bollard::models::{HostConfig, PortBinding};
+use bollard::models::{RestartPolicy, RestartPolicyNameEnum};
 use bollard::Docker;
-use log::info;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -29,7 +30,6 @@ pub struct EnvVars {
     pub wordpress: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
 pub enum ContainerOperation {
     Start,
     Stop,
@@ -124,8 +124,6 @@ impl ContainerStatus {
     }
 }
 
-pub type ContainerInfo = (ContainerOperation, &'static str);
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceContainer {
     pub container_id: String,
@@ -144,7 +142,8 @@ impl InstanceContainer {
         volume_binding: Option<(Option<PathBuf>, &str)>,
         port: Option<(u32, u32)>,
     ) -> Result<(String, ContainerStatus)> {
-        let docker = Docker::connect_with_defaults()?;
+        info!("Creating container for image: {:?}", container_image);
+        let docker = Docker::connect_with_defaults().context("Failed to connect to Docker")?;
         let config_dir = instance_path.join(&container_image.to_string());
 
         let path = utils::create_path(&config_dir)
@@ -190,6 +189,10 @@ impl InstanceContainer {
             } else {
                 Some(port_bindings)
             },
+            restart_policy: Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                maximum_retry_count: Some(3),
+            }),
             ..Default::default()
         };
 
@@ -218,21 +221,29 @@ impl InstanceContainer {
             .await
         {
             Ok(response) => {
+                info!("Container successfully created with ID: {}", response.id);
                 let container_id = response.id;
 
                 match Self::get_status(&docker, &container_id).await {
-                    Ok(status) => Ok((container_id, status)),
-                    Err(err) => Err(err.into()),
+                    Ok(status) => {
+                        info!("Container successfully created with ID: {}", container_id);
+                        Ok((container_id, status))
+                    }
+                    Err(err) => {
+                        error!("Failed to get status for container: {:?}", err);
+                        Err(err.into())
+                    }
                 }
             }
-            Err(err) => Err(err.into()),
+            Err(err) => {
+                error!("Failed to create container: {:?}", err);
+                Err(err.into())
+            }
         }
     }
 
-    pub async fn get_status(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<ContainerStatus, AnyhowError> {
+    pub async fn get_status(docker: &Docker, container_id: &str) -> Result<ContainerStatus> {
+        info!("Getting status for container: {}", container_id);
         let container_info = docker
             .inspect_container(container_id, None)
             .await
@@ -257,24 +268,15 @@ impl InstanceContainer {
         .await
     }
 
-    pub async fn start(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn start(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(docker, &container_id.to_string(), ContainerOperation::Start).await
     }
 
-    pub async fn stop(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn stop(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(docker, &container_id.to_string(), ContainerOperation::Stop).await
     }
 
-    pub async fn restart(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn restart(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(
             docker,
             &container_id.to_string(),
@@ -283,10 +285,7 @@ impl InstanceContainer {
         .await
     }
 
-    pub async fn delete(
-        docker: &Docker,
-        container_id: &str,
-    ) -> Result<InstanceContainer, AnyhowError> {
+    pub async fn delete(docker: &Docker, container_id: &str) -> Result<InstanceContainer> {
         handle_container(
             docker,
             &container_id.to_string(),
@@ -296,11 +295,12 @@ impl InstanceContainer {
     }
 }
 
-pub async fn handle_container(
+async fn handle_container(
     docker: &Docker,
     container_id: &str,
     operation: ContainerOperation,
-) -> Result<InstanceContainer, AnyhowError> {
+) -> Result<InstanceContainer> {
+    info!("Handling container: {}", container_id);
     let container_info = docker
         .inspect_container(container_id, None)
         .await
@@ -319,11 +319,12 @@ pub async fn handle_container(
 
     match operation {
         ContainerOperation::Start => {
+            info!("Starting container: {}", container_id);
             if container_status != ContainerStatus::Running {
                 docker
                     .start_container(container_id, None::<StartContainerOptions<String>>)
                     .await
-                    .map_err(AnyhowError::from)?;
+                    .context("Failed to start container")?;
                 info!("{} container successfully started", container_id);
             } else {
                 info!(
@@ -333,37 +334,66 @@ pub async fn handle_container(
             }
         }
         ContainerOperation::Stop => {
-            if container_status == ContainerStatus::Running {
-                docker
-                    .stop_container(container_id, None::<StopContainerOptions>)
-                    .await
-                    .map_err(AnyhowError::from)?;
-                info!("{} container successfully stopped", container_id);
-            } else {
-                info!(
-                    "{} container is already stopped, skipping stop operation",
-                    container_id
-                );
+            info!("Stopping container: {}", container_id);
+            match container_status {
+                ContainerStatus::Running => {
+                    docker
+                        .stop_container(container_id, None::<StopContainerOptions>)
+                        .await
+                        .context("Failed to stop container")?;
+                    info!("{} container successfully stopped", container_id);
+                }
+                ContainerStatus::Stopped => {
+                    info!(
+                        "{} container is already stopped, skipping stop operation",
+                        container_id
+                    );
+                }
+                _ => {
+                    error!(
+                        "Failed to stop container: {} is in an invalid state",
+                        container_id
+                    );
+                }
             }
         }
         ContainerOperation::Restart => {
-            docker
-                .restart_container(container_id, None::<RestartContainerOptions>)
-                .await
-                .map_err(AnyhowError::from)?;
-            info!("{} container successfully restarted", container_id);
+            info!("Restarting container: {}", container_id);
+            match container_status {
+                ContainerStatus::Running => {
+                    docker
+                        .restart_container(container_id, None::<RestartContainerOptions>)
+                        .await
+                        .context("Failed to restart container")?;
+                    info!("{} container successfully restarted", container_id);
+                }
+                ContainerStatus::Stopped => {
+                    docker
+                        .start_container(container_id, None::<StartContainerOptions<String>>)
+                        .await
+                        .context("Failed to start container")?;
+                    info!("{} container successfully started", container_id);
+                }
+                _ => {
+                    error!(
+                        "Failed to restart container: {} is in an invalid state",
+                        container_id
+                    );
+                }
+            }
         }
         ContainerOperation::Delete => {
+            info!("Deleting container: {}", container_id);
             if container_status == ContainerStatus::Running {
                 docker
                     .stop_container(container_id, None::<StopContainerOptions>)
                     .await
-                    .map_err(AnyhowError::from)?;
+                    .context("Failed to stop container")?;
             }
             docker
                 .remove_container(container_id, None::<RemoveContainerOptions>)
                 .await
-                .map_err(AnyhowError::from)?;
+                .context("Failed to remove container")?;
             info!("{} container successfully deleted", container_id);
         }
         ContainerOperation::Inspect => {

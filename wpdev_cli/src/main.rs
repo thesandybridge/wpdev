@@ -1,145 +1,193 @@
-use anyhow::{Error as AnyhowError, Result};
+use anyhow::Result;
 use tokio;
 mod commands;
 use wpdev_core::config;
 use wpdev_core::utils;
 
-use clap::{arg, Command};
+use anyhow::Context;
+use bat::PrettyPrinter;
+use clap::{Args, Parser, Subcommand};
+use env_logger;
 use serde_json;
 
-fn cli() -> Command {
-    Command::new("wpdev")
-        .about("A CLI for managing WordPress development environments.")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .allow_external_subcommands(true)
-        .subcommand(
-            Command::new("instances")
-                .about("Manage instances")
-                .after_help("Use 'wpdev instances <SUBCOMMAND> --help' for more information")
-                .subcommand(
-                    Command::new("list")
-                        .about("List instances")
-                        .arg(arg!(<ID> "Instance ID").required(false)),
-                )
-                .subcommand(
-                    Command::new("create")
-                        .about("Create a new instance")
-                        .arg(arg!(<OPTIONS> "WordPress Options").required(false)),
-                )
-                .subcommand(
-                    Command::new("start")
-                        .about("Start an instance")
-                        .arg(arg!(<ID> "Instance ID").required(true)),
-                )
-                .subcommand(
-                    Command::new("stop")
-                        .about("Stop an instance")
-                        .arg(arg!(<ID> "Instance ID").required(true)),
-                )
-                .subcommand(
-                    Command::new("restart")
-                        .about("Restart an instance")
-                        .arg(arg!(<ID> "Instance ID").required(true)),
-                )
-                .subcommand(
-                    Command::new("delete")
-                        .about("Delete an instance")
-                        .arg(arg!(<ID> "Instance ID").required(true)),
-                )
-                .subcommand(Command::new("start_all").about("Start all instances"))
-                .subcommand(Command::new("stop_all").about("Stop all instances"))
-                .subcommand(Command::new("restart_all").about("Restart all instances"))
-                .subcommand(Command::new("purge").about("Delete all instances"))
-                .subcommand(
-                    Command::new("status")
-                        .about("Get the status of an instance")
-                        .arg(arg!(<ID> "Instance ID").required(true)),
-                ),
-        )
+/// A CLI for managing WordPress development environments.
+#[derive(Parser, Debug)]
+#[clap(name = "wpdev")]
+struct Cli {
+    #[clap(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// List instances. If an ID is provided, details for that instance are shown. If -a is provided, lists all instances.
+    List(InstanceArgs),
+    /// Create a new instance
+    Create {
+        #[clap(value_parser, group = "listing")]
+        options: Option<String>,
+    },
+    /// Start instances. If an ID is provided, starts that instance. If -a is provided, starts all instances.
+    Start(InstanceArgs),
+    /// Stop instances. If an ID is provided, stops that instance. If -a is provided, stops all instances.
+    Stop(InstanceArgs),
+    /// Restart instances. If an ID is provided, restarts that instance. If -a is provided, restarts all instances.
+    Restart(InstanceArgs),
+    /// Prune instances. If an ID is provided, prune that instance. If -a is provided, prune all instances.
+    Prune(InstanceArgs),
+    /// Get the status of an instance or all instances.
+    Status(InstanceArgs),
+}
+
+#[derive(Args, Debug)]
+struct InstanceArgs {
+    /// Instance ID
+    #[clap(value_parser, required_unless_present = "all")]
+    id: Option<String>,
+
+    /// Operate on all instances
+    #[clap(short = 'a', long, action = clap::ArgAction::SetTrue, conflicts_with = "id")]
+    all: bool,
+}
+
+async fn pretty_print(language: &str, input: &str) -> Result<()> {
+    let config = config::read_or_create_config().await?;
+    let color = config.cli_colored_output;
+    let theme = config.cli_theme;
+    let mut printer = PrettyPrinter::new();
+    printer.input_from_bytes(input.as_bytes());
+    printer.language(language);
+    printer.colored_output(color);
+    if let Some(theme) = theme {
+        printer.theme(theme);
+    }
+    printer.print()?;
+    Ok(())
 }
 
 #[tokio::main]
-async fn main() -> Result<(), AnyhowError> {
+async fn main() -> Result<()> {
+    let config = config::read_or_create_config()
+        .await
+        .context("Failed to read or create config")?;
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level))
+        .init();
     config::pull_docker_images_from_config().await?;
-
-    let matches = cli().get_matches();
-    match matches.subcommand() {
-        Some(("instances", sites_matches)) => match sites_matches.subcommand() {
-            Some(("create", create_matches)) => {
-                let options = create_matches.get_one("OPTIONS");
-                let instance =
-                    utils::with_spinner(commands::create_instance(options), "Creating instance")
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::List(args) => {
+            if args.all {
+                let instances =
+                    utils::with_spinner(commands::inspect_all_instances(), "Listing instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instances_str = serde_json::to_string_pretty(&instances)?;
+                pretty_print("json", &instances_str).await?;
+            } else if let Some(id) = args.id {
+                let instance = utils::with_spinner(
+                    commands::inspect_instance(&id),
+                    "Getting instance details",
+                )
+                .await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
             }
-            Some(("start", start_matches)) => {
-                let id = start_matches.get_one("ID").unwrap();
-                let instance =
-                    utils::with_spinner(commands::start_instance(id), "Starting instance").await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
-            }
-            Some(("stop", stop_matches)) => {
-                let id = stop_matches.get_one("ID").unwrap();
-                let instance =
-                    utils::with_spinner(commands::stop_instance(id), "Stopping instance").await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
-            }
-            Some(("restart", restart_matches)) => {
-                let id = restart_matches.get_one("ID").unwrap();
-                let instance =
-                    utils::with_spinner(commands::restart_instance(id), "Restarting instance")
-                        .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
-            }
-            Some(("delete", delete_matches)) => {
-                let id = delete_matches.get_one("ID").unwrap();
-                let instance =
-                    utils::with_spinner(commands::delete_instance(id), "Deleting instance").await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
-            }
-            Some(("start_all", _)) => {
+        }
+        Commands::Create { options } => {
+            let instance = utils::with_spinner(
+                commands::create_instance(options.as_ref()),
+                "Creating instance",
+            )
+            .await?;
+            println!("\n");
+            let instance_str = serde_json::to_string_pretty(&instance)?;
+            pretty_print("json", &instance_str).await?;
+        }
+        Commands::Start(args) => {
+            if args.all {
                 let instance =
                     utils::with_spinner(commands::start_all_instances(), "Starting all instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            } else if let Some(id) = args.id {
+                let instance =
+                    utils::with_spinner(commands::start_instance(&id), "Starting instance").await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
             }
-            Some(("stop_all", _)) => {
+        }
+        Commands::Stop(args) => {
+            if args.all {
                 let instance =
                     utils::with_spinner(commands::stop_all_instances(), "Stopping all instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            } else if let Some(id) = args.id {
+                let instance =
+                    utils::with_spinner(commands::stop_instance(&id), "Stopping instance").await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
             }
-            Some(("restart_all", _)) => {
+        }
+        Commands::Restart(args) => {
+            if args.all {
                 let instance = utils::with_spinner(
                     commands::restart_all_instances(),
                     "Restarting all instances",
                 )
                 .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
-            }
-            Some(("purge", _)) => {
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            } else if let Some(id) = args.id {
                 let instance =
-                    utils::with_spinner(commands::delete_all_instances(), "Purging all instances")
+                    utils::with_spinner(commands::restart_instance(&id), "Restarting instance")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
             }
-            Some(("status", status_matches)) => {
-                let id = status_matches.get_one("ID").unwrap();
+        }
+        Commands::Prune(args) => {
+            if args.all {
                 let instance =
-                    utils::with_spinner(commands::inspect_instance(id), "Getting instance status")
+                    utils::with_spinner(commands::delete_all_instances(), "Pruning all instances")
                         .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
-            }
-            Some(("list", _)) => {
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            } else if let Some(id) = args.id {
                 let instance =
-                    utils::with_spinner(commands::inspect_all_instances(), "Getting instances")
-                        .await?;
-                println!("\n{}", serde_json::to_string_pretty(&instance)?);
+                    utils::with_spinner(commands::delete_instance(&id), "Pruning instance").await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
             }
-            _ => println!("Invalid command. Please use <help> to a see full list of commands."),
-        },
-        _ => println!("Invalid command. Please use <help> to a see full list of commands."),
+        }
+        Commands::Status(args) => {
+            if args.all {
+                let instance =
+                    utils::with_spinner(commands::get_all_statuses(), "Getting status").await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            } else if let Some(id) = args.id {
+                let instance =
+                    utils::with_spinner(commands::get_status(&id), "Getting instance status")
+                        .await?;
+                println!("\n");
+                let instance_str = serde_json::to_string_pretty(&instance)?;
+                pretty_print("json", &instance_str).await?;
+            }
+        }
     }
+
     Ok(())
 }

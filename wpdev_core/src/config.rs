@@ -2,7 +2,7 @@ use bollard::image::{CreateImageOptions, ListImagesOptions};
 use bollard::network::CreateNetworkOptions;
 use bollard::Docker;
 use futures::stream::StreamExt;
-use log::info;
+use log::{error, info};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -17,6 +17,7 @@ use crate::utils;
 use crate::AppConfig;
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
+    info!("Reading or creating config file");
     let config_dir =
         dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Failed to find config directory"))?;
     let config_dir = config_dir.join("wpdev");
@@ -26,44 +27,29 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
 
     let config_path = config_dir.join("config.toml");
 
-    match fs::metadata(&config_path).await {
-        Ok(_) => {
-            let contents = fs::read_to_string(&config_path)
-                .await
-                .context("Failed to read config file")?;
-            let config: AppConfig =
-                toml::from_str(&contents).context("Failed to parse config file")?;
+    match fs::read_to_string(&config_path).await {
+        Ok(contents) => {
+            info!("Reading config file from {:?}", config_path);
+            let config: AppConfig = toml::from_str(&contents)
+                .with_context(|| format!("Failed to parse config file at {:?}", config_path))?;
             Ok(config)
         }
         Err(_) => {
-            let config = AppConfig::default();
-            let toml = toml::to_string(&config).context("Failed to serialize default config")?;
-            fs::write(&config_path, toml)
-                .await
-                .context("Failed to write default config file")?;
-            Ok(config)
+            info!("Creating new config file at {:?}", config_path);
+            Ok(AppConfig::default())
         }
     }
 }
 
-/// Check if a Docker image exists locally.
-///
-/// # Arguments
-///
-/// * `image_name` - The name of the image to check for.
-///
-/// # Examples
-///
-/// ```
-/// let image_exists = image_exists("wordpress:latest").await;
-/// ```
 pub async fn image_exists(image_name: &str) -> Result<bool> {
+    info!("Checking if image {} exists locally", image_name);
     let docker = Docker::connect_with_defaults()?;
     let options = Some(ListImagesOptions::<String> {
         ..Default::default()
     });
     let images = docker.list_images(options).await?;
     Ok(images.iter().any(|image| {
+        info!("Checking image {:?}", image);
         image
             .repo_tags
             .iter()
@@ -71,29 +57,8 @@ pub async fn image_exists(image_name: &str) -> Result<bool> {
     }))
 }
 
-/// Pull a Docker image if it does not already exist locally.
-///
-/// # Arguments
-///
-/// * `image_name` - The name of the image to pull.
-///
-/// # Errors
-///
-/// * If the image fails to pull.
-/// * If the image is not found.
-/// * If the image is not valid.
-/// * If the image is not authorized.
-/// * If the image is not available.
-/// * If the image is not ready.
-/// * If the image is not a Docker image.
-///
-///
-/// # Examples
-///
-/// ```
-/// pull_docker_image_if_not_exists("wordpress:latest").await?;
-/// ```
 async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
+    info!("Pulling image {} if it doesn't exist locally", image_name);
     let image = image_exists(image_name).await?;
     if !image {
         let docker = Docker::connect_with_defaults()?;
@@ -103,27 +68,14 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
         };
         let mut stream = docker.create_image(Some(options), None, None);
 
-        let mut success = false;
-        let mut error_message = None;
-
         while let Some(result) = stream.next().await {
             match result {
                 Ok(_) => {
-                    success = true;
+                    info!("Image {} pulled successfully", image_name);
                 }
                 Err(err) => {
-                    error_message = Some(format!("Error pulling image: {:?}", err));
+                    error!("Error pulling image: {:?}", err);
                 }
-            }
-        }
-
-        if success {
-            println!("Image {} is now available locally.", image_name);
-        } else {
-            if let Some(message) = error_message {
-                eprintln!("{}", message);
-            } else {
-                eprintln!("Failed to pull image {}.", image_name);
             }
         }
     }
@@ -132,19 +84,23 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
 }
 
 pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
+    info!("Pulling docker images from config");
     let config = read_or_create_config()
         .await
         .context("Failed to read config")?;
 
     if config.docker_images.is_empty() {
+        info!("No images to pull");
         return Ok(());
     }
 
     for image_name in config.docker_images {
+        info!("Pulling image {}", image_name);
         pull_docker_image_if_not_exists(&image_name)
             .await
             .context(format!("Failed to pull image {}", image_name))?;
     }
+    info!("All images pulled successfully");
 
     Ok(())
 }
@@ -155,11 +111,12 @@ pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
 ///
 /// * `docker` - &Docker
 /// * `network_name` - name of the network
-pub async fn create_network_if_not_exists(
+pub(crate) async fn create_network_if_not_exists(
     docker: &Docker,
     network_prefix: &str,
     id: &str,
 ) -> Result<()> {
+    info!("Creating network if it doesn't exist");
     let network_name = format!("{}-{}", network_prefix, id);
     let options = CreateNetworkOptions {
         name: network_name,
@@ -178,12 +135,17 @@ fn merge_env_vars(
     defaults: HashMap<String, String>,
     overrides: &Option<HashMap<String, String>>,
 ) -> Vec<String> {
+    info!("Merging environment variables");
     let mut env_vars = defaults;
 
     if let Some(overrides) = overrides {
+        info!("Found overrides");
         for (key, value) in overrides.iter() {
+            info!("Adding override: {}={}", key, value);
             env_vars.insert(key.clone(), value.clone());
         }
+    } else {
+        info!("No overrides found");
     }
 
     env_vars
@@ -192,10 +154,11 @@ fn merge_env_vars(
         .collect()
 }
 
-pub async fn initialize_env_vars(
+pub(crate) async fn initialize_env_vars(
     instance_label: &str,
     user_env_vars: &ContainerEnvVars,
 ) -> Result<EnvVars, AnyhowError> {
+    info!("Initializing environment variables");
     let default_adminer_vars = HashMap::from([
         ("ADMINER_DESIGN".to_string(), "nette".to_string()),
         (
@@ -252,13 +215,14 @@ pub async fn initialize_env_vars(
     })
 }
 
-pub async fn generate_nginx_config(
+pub(crate) async fn generate_nginx_config(
     instance_label: &str,
     nginx_port: u32,
     adminer_name: &str,
     wordpress_name: &str,
     instance_dir: &PathBuf,
 ) -> Result<PathBuf, AnyhowError> {
+    info!("Generating nginx config");
     let nginx_config = format!(
         r#"
 server {{
@@ -307,11 +271,12 @@ server {{
     Ok(nginx_config_path)
 }
 
-pub async fn generate_wpcli_config(
+pub(crate) async fn generate_wpcli_config(
     config: &crate::AppConfig,
     instance_label: &str,
     home_dir: &PathBuf,
 ) -> Result<(), AnyhowError> {
+    info!("Generating wp-cli config");
     let instance_dir = home_dir.join(format!(
         "{}/{}-{}/",
         &config.custom_root,
@@ -364,6 +329,7 @@ define('WP_DEBUG', false);
 }
 
 pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<InstanceData> {
+    info!("Reading instance data from toml");
     let config = read_or_create_config()
         .await
         .context("Failed to read config")?;
@@ -373,6 +339,7 @@ pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<Instan
         .join(format!("{}/instance.toml", instance_label));
 
     if !instance_dir.exists() {
+        error!("Instance file not found at {:?}", instance_dir);
         return Err(AnyhowError::msg(format!(
             "Instance file not found at {:?}",
             instance_dir
@@ -392,7 +359,7 @@ pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<Instan
     Ok(instance_data)
 }
 
-pub async fn parse_instance_data(
+pub(crate) async fn parse_instance_data(
     env_vars: &EnvVars,
     nginx_port: &u32,
     adminer_port: &u32,
@@ -400,6 +367,7 @@ pub async fn parse_instance_data(
     home_dir: &PathBuf,
     instance_label: &str,
 ) -> Result<InstanceData> {
+    info!("Parsing instance data");
     let instance_dir = home_dir.join(format!(
         "{}/{}-{}/instance.toml",
         &config.custom_root,
@@ -408,6 +376,7 @@ pub async fn parse_instance_data(
     ));
 
     fn extract_value(vars: &Vec<String>, key: &str) -> String {
+        info!("Extracting value for key {}", key);
         vars.iter()
             .find_map(|s| {
                 let parts: Vec<&str> = s.splitn(2, '=').collect();

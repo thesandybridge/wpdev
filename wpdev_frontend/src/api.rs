@@ -12,7 +12,7 @@ use wpdev_core::docker::instance::Instance;
 #[folder = "templates/"]
 struct TemplateAssets;
 
-pub async fn inspect_instance(path: web::Path<String>) -> Result<HttpResponse> {
+pub(crate) async fn inspect_instance(path: web::Path<String>) -> Result<HttpResponse> {
     let instance_uuid = path.into_inner();
 
     let docker = Docker::connect_with_defaults().map_err(|e| {
@@ -42,7 +42,7 @@ pub async fn inspect_instance(path: web::Path<String>) -> Result<HttpResponse> {
     }
 }
 
-pub async fn inspect_all() -> Result<HttpResponse> {
+pub(crate) async fn inspect_all() -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
@@ -75,7 +75,7 @@ pub async fn inspect_all() -> Result<HttpResponse> {
     }
 }
 
-pub async fn create_instance(body: Option<web::Bytes>) -> Result<HttpResponse> {
+pub(crate) async fn create_instance(body: Option<web::Bytes>) -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
@@ -99,7 +99,7 @@ pub async fn create_instance(body: Option<web::Bytes>) -> Result<HttpResponse> {
     }
 }
 
-pub async fn delete_all_instances() -> Result<HttpResponse> {
+pub(crate) async fn delete_all_instances() -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
@@ -117,7 +117,7 @@ pub async fn delete_all_instances() -> Result<HttpResponse> {
     }
 }
 
-pub async fn delete_instance(path: web::Path<String>) -> Result<HttpResponse> {
+pub(crate) async fn delete_instance(path: web::Path<String>) -> Result<HttpResponse> {
     let instance_uuid = path.into_inner();
 
     let docker = Docker::connect_with_defaults().map_err(|e| {
@@ -137,7 +137,7 @@ pub async fn delete_instance(path: web::Path<String>) -> Result<HttpResponse> {
     }
 }
 
-pub async fn restart_all_instances() -> Result<HttpResponse> {
+pub(crate) async fn restart_all_instances() -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
@@ -155,7 +155,7 @@ pub async fn restart_all_instances() -> Result<HttpResponse> {
     }
 }
 
-pub async fn restart_instance(path: web::Path<String>) -> Result<HttpResponse> {
+pub(crate) async fn restart_instance(path: web::Path<String>) -> Result<HttpResponse> {
     let instance_uuid = path.into_inner();
 
     let docker = Docker::connect_with_defaults().map_err(|e| {
@@ -175,7 +175,7 @@ pub async fn restart_instance(path: web::Path<String>) -> Result<HttpResponse> {
     }
 }
 
-pub async fn stop_all_instances() -> Result<HttpResponse> {
+pub(crate) async fn stop_all_instances() -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
@@ -193,7 +193,7 @@ pub async fn stop_all_instances() -> Result<HttpResponse> {
     }
 }
 
-pub async fn stop_instance(path: web::Path<String>) -> Result<HttpResponse> {
+pub(crate) async fn stop_instance(path: web::Path<String>) -> Result<HttpResponse> {
     let instance_uuid = path.into_inner();
 
     let docker = Docker::connect_with_defaults().map_err(|e| {
@@ -213,7 +213,7 @@ pub async fn stop_instance(path: web::Path<String>) -> Result<HttpResponse> {
     }
 }
 
-pub async fn start_instance(path: web::Path<String>) -> Result<HttpResponse> {
+pub(crate) async fn start_instance(path: web::Path<String>) -> Result<HttpResponse> {
     let instance_uuid = path.into_inner();
 
     let docker = Docker::connect_with_defaults().map_err(|e| {
@@ -233,7 +233,7 @@ pub async fn start_instance(path: web::Path<String>) -> Result<HttpResponse> {
     }
 }
 
-pub async fn start_all_instances() -> Result<HttpResponse> {
+pub(crate) async fn start_all_instances() -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
     })?;
