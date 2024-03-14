@@ -63,9 +63,18 @@ async fn styles() -> Result<HttpResponse, Error> {
 #[actix_web::main]
 async fn main() -> Result<()> {
     let config = config::read_or_create_config().await?;
-    let host = format!("http://{}:{}", config.web_app_ip, config.web_app_port);
-    HttpServer::new(|| {
+    let host_bind = format!("{}:{}", config.web_app_ip, config.web_app_port);
+    let cors_allowed_origin = format!("http://{}", host_bind);
+    HttpServer::new(move || {
+        let cors = Cors::default()
+            .allowed_origin(&cors_allowed_origin)
+            .allowed_methods(vec!["GET", "POST", "OPTIONS", "DELETE"])
+            .allowed_headers(vec!["Content-Type", "*"])
+            .supports_credentials()
+            .max_age(3600);
+
         App::new()
+            .wrap(cors)
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::resource("/list_all_instances").route(web::get().to(api::inspect_all)))
             .service(
@@ -103,7 +112,7 @@ async fn main() -> Result<()> {
             .service(web::resource("/static/style.css").route(web::get().to(styles)))
             .service(fs::Files::new("/static", "./static"))
     })
-    .bind(&host)?
+    .bind(&host_bind)?
     .run()
     .await?;
 
