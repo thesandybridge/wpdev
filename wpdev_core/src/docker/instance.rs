@@ -19,7 +19,7 @@ use crate::docker::container::{
 };
 use crate::utils;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Instance {
     pub uuid: String,
     pub status: InstanceStatus,
@@ -29,7 +29,7 @@ pub struct Instance {
     pub wordpress_data: Option<InstanceData>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct InstanceData {
     pub admin_user: String,
     pub admin_password: String,
@@ -44,7 +44,7 @@ pub struct InstanceData {
     pub adminer_port: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum InstanceStatus {
     Running,
     Stopped,

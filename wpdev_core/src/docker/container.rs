@@ -29,7 +29,6 @@ pub struct EnvVars {
     pub wordpress: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
 pub enum ContainerOperation {
     Start,
     Stop,
