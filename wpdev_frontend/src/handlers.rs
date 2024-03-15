@@ -1,4 +1,4 @@
-use actix_web::{body, delete, get, post, web, HttpResponse, Result};
+use actix_web::{delete, get, post, web, HttpResponse, Result};
 use bollard::Docker;
 use rust_embed::RustEmbed;
 use serde_json::json;
@@ -55,19 +55,11 @@ pub(crate) async fn create_instance(
         .unwrap_or_default();
 
     match Instance::new(&docker, &uuid, env_vars).await {
-        Ok(_) => match Instance::inspect_all(&docker, wpdev_core::NETWORK_NAME).await {
-            Ok(instances) => {
-                let mut context = Context::new();
-                context.insert("instances", &instances);
-                render_template(tera, "instances", &context).await
-            }
-            Err(e) => {
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": e.to_string()
-                })));
-            }
-        },
+        Ok(instance) => {
+            let mut context = Context::new();
+            context.insert("instance", &instance);
+            render_template(tera, "instance", &context).await
+        }
         Err(e) => {
             return Ok(HttpResponse::InternalServerError().json(json!({
                 "status": "error",
@@ -77,7 +69,7 @@ pub(crate) async fn create_instance(
     }
 }
 
-#[delete("/delete_all_instances")]
+#[delete("/delete_instances")]
 pub(crate) async fn delete_all_instances(tera: web::Data<Tera>) -> Result<HttpResponse> {
     let docker = Docker::connect_with_defaults().map_err(|e| {
         actix_web::error::ErrorInternalServerError(format!("Failed to connect to Docker: {}", e))
@@ -107,10 +99,7 @@ pub(crate) async fn delete_all_instances(tera: web::Data<Tera>) -> Result<HttpRe
 }
 
 #[delete("/delete_instance/{id}")]
-pub(crate) async fn delete_instance(
-    tera: web::Data<Tera>,
-    path: web::Path<String>,
-) -> Result<HttpResponse> {
+pub(crate) async fn delete_instance(path: web::Path<String>) -> Result<HttpResponse> {
     let instance_uuid = path.into_inner();
 
     let docker = Docker::connect_with_defaults().map_err(|e| {
@@ -118,25 +107,8 @@ pub(crate) async fn delete_instance(
     })?;
 
     match Instance::delete(&docker, &instance_uuid, false).await {
-        Ok(_) => match Instance::inspect_all(&docker, wpdev_core::NETWORK_NAME).await {
-            Ok(instances) => {
-                let mut context = Context::new();
-                context.insert("instances", &instances);
-                render_template(tera, "instances", &context).await
-            }
-            Err(e) => {
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": e.to_string()
-                })));
-            }
-        },
-        Err(e) => {
-            return Ok(HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": e.to_string()
-            })));
-        }
+        Ok(_) => Ok(HttpResponse::Ok().finish()),
+        Err(_) => Ok(HttpResponse::InternalServerError().finish()),
     }
 }
 
@@ -181,11 +153,11 @@ pub(crate) async fn restart_instance(
     })?;
 
     match Instance::restart(&docker, &instance_uuid).await {
-        Ok(_) => match Instance::inspect_all(&docker, wpdev_core::NETWORK_NAME).await {
-            Ok(instances) => {
+        Ok(_) => match Instance::inspect(&docker, &instance_uuid).await {
+            Ok(instance) => {
                 let mut context = Context::new();
-                context.insert("instances", &instances);
-                render_template(tera, "instances", &context).await
+                context.insert("instance", &instance);
+                render_template(tera, "instance", &context).await
             }
             Err(e) => {
                 return Ok(HttpResponse::InternalServerError().json(json!({
@@ -244,11 +216,11 @@ pub(crate) async fn stop_instance(
     })?;
 
     match Instance::stop(&docker, &instance_uuid).await {
-        Ok(_) => match Instance::inspect_all(&docker, wpdev_core::NETWORK_NAME).await {
-            Ok(instances) => {
+        Ok(_) => match Instance::inspect(&docker, &instance_uuid).await {
+            Ok(instance) => {
                 let mut context = Context::new();
-                context.insert("instances", &instances);
-                render_template(tera, "instances", &context).await
+                context.insert("instance", &instance);
+                render_template(tera, "instance", &context).await
             }
             Err(e) => {
                 return Ok(HttpResponse::InternalServerError().json(json!({
@@ -278,11 +250,11 @@ pub(crate) async fn start_instance(
     })?;
 
     match Instance::start(&docker, &instance_uuid).await {
-        Ok(_) => match Instance::inspect_all(&docker, wpdev_core::NETWORK_NAME).await {
-            Ok(instances) => {
+        Ok(_) => match Instance::inspect(&docker, &instance_uuid).await {
+            Ok(instance) => {
                 let mut context = Context::new();
-                context.insert("instances", &instances);
-                render_template(tera, "instances", &context).await
+                context.insert("instance", &instance);
+                render_template(tera, "instance", &context).await
             }
             Err(e) => {
                 return Ok(HttpResponse::InternalServerError().json(json!({

@@ -1,0 +1,61 @@
+<div
+    title="{{ instance.status }}"
+    class="instance {{ instance.status }}" id="instance-{{ instance.uuid }}" data-id="{{ instance.uuid }}">
+    <div class="instance-header">
+        <div class="instance-title">
+            <div class="instance-status {{ instance.status }}" title="{{ instance.status }}"></div>
+            <h3>{{ instance.wordpress_data.site_title }}</h3>
+        </div>
+        <div class="instance-controls">
+            <button
+                hx-delete="/delete_instance/{{ instance.uuid }}"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
+                hx-indicator=".loader"
+            >Delete</button>
+            <button
+                hx-post="/start_instance/{{ instance.uuid }}"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
+                hx-indicator=".loader"
+                {% if instance.status == "Running" %}
+                disabled
+                {% endif %}
+            >Start</button>
+            <button
+                hx-post="/stop_instance/{{ instance.uuid }}"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
+                hx-indicator=".loader"
+                {% if instance.status == "Stopped" %}
+                disabled
+                {% endif %}
+            >Stop</button>
+            <button
+                hx-post="/restart_instance/{{ instance.uuid }}"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
+                hx-indicator=".loader"
+                {% if instance.status == "Stopped" %}
+                disabled
+                {% endif %}
+            >Restart</button>
+        </div>
+    </div>
+    {% if instance.status == "Running" %}
+    <div class="instance-details">
+        <p>URL: <a href="{{ instance.wordpress_data.site_url }}" target="_blank">{{ instance.wordpress_data.site_url }}</a></p>
+        <p>Adminer URL: <a href="{{ instance.wordpress_data.adminer_url }}" target="_blank">{{ instance.wordpress_data.adminer_url }}</a></p>
+    </div>
+    {% endif %}
+    <div class="instance-containers">
+        {% for container in instance.containers %}
+        <div
+            title="{{ container.container_status }}"
+            class="instance-container {{ container.container_status }}"
+            data-id="{{ container.container_id }}">
+            <h4>{{ container.container_image }}</h4>
+        </div>
+        {% endfor %}
+    </div>
+</div>
