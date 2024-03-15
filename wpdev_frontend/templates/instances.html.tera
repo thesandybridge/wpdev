@@ -1,3 +1,4 @@
+{% for instance in instances %}
 <div
     title="{{ instance.status }}"
     class="instance {{ instance.status }}" data-id="{{ instance.uuid }}">
@@ -56,3 +57,6 @@
     </div>
 
 </div>
+{% else %}
+    <p>No instances available.</p>
+{% endfor %}

@@ -63,13 +63,15 @@ async fn styles() -> Result<HttpResponse, Error> {
 }
 
 fn create_tera_instance() -> Result<Tera, actix_web::Error> {
-    let mut tera = match Tera::new("templates/**/*") {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Parsing error(s): {}", e);
-            return Err(actix_web::error::ErrorInternalServerError(e));
-        }
-    };
+    let mut tera = Tera::default();
+
+    for file in TemplateAssets::iter() {
+        let asset = TemplateAssets::get(&file).expect(&format!("Template {} not found", file));
+        let template_str =
+            std::str::from_utf8(asset.data.as_ref()).expect("Failed to decode template");
+        tera.add_raw_template(&file, template_str)
+            .expect("Failed to load template");
+    }
 
     tera.autoescape_on(vec!["html", ".html.tera"]);
     Ok(tera)
