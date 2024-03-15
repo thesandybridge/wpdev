@@ -1,6 +1,6 @@
 <div
     title="{{ instance.status }}"
-    class="instance {{ instance.status }}" data-id="{{ instance.uuid }}">
+    class="instance {{ instance.status }}" id="instance-{{ instance.uuid }}" data-id="{{ instance.uuid }}">
     <div class="instance-header">
         <div class="instance-title">
             <div class="instance-status {{ instance.status }}" title="{{ instance.status }}"></div>
@@ -9,12 +9,14 @@
         <div class="instance-controls">
             <button
                 hx-delete="/delete_instance/{{ instance.uuid }}"
-                hx-target="#instances-list"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
                 hx-indicator=".loader"
             >Delete</button>
             <button
                 hx-post="/start_instance/{{ instance.uuid }}"
-                hx-target="#instances-list"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
                 hx-indicator=".loader"
                 {% if instance.status == "Running" %}
                 disabled
@@ -22,7 +24,8 @@
             >Start</button>
             <button
                 hx-post="/stop_instance/{{ instance.uuid }}"
-                hx-target="#instances-list"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
                 hx-indicator=".loader"
                 {% if instance.status == "Stopped" %}
                 disabled
@@ -30,7 +33,8 @@
             >Stop</button>
             <button
                 hx-post="/restart_instance/{{ instance.uuid }}"
-                hx-target="#instances-list"
+                hx-target="#instance-{{ instance.uuid }}"
+                hx-swap="outerHTML"
                 hx-indicator=".loader"
                 {% if instance.status == "Stopped" %}
                 disabled
@@ -54,5 +58,4 @@
         </div>
         {% endfor %}
     </div>
-
 </div>
