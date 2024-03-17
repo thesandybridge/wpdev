@@ -18,7 +18,7 @@ async fn render_template(
     context: &Context,
 ) -> Result<HttpResponse> {
     let rendered = tera
-        .render(&format!("{}.html.tera", template_name), context)
+        .render(&format!("{}.html", template_name), context)
         .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
 
     Ok(HttpResponse::Ok().content_type("text/html").body(rendered))

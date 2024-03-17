@@ -1,5 +1,4 @@
 use actix_cors::Cors;
-use actix_files as fs;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, Error, HttpResponse, HttpServer};
 use anyhow::Result;
@@ -25,14 +24,14 @@ struct TemplateAssets;
 struct StaticAssets;
 
 async fn index() -> actix_web::Result<HttpResponse> {
-    let asset = TemplateAssets::get("index.html.tera").expect("Template not found");
+    let asset = TemplateAssets::get("index.html").expect("Template not found");
     let template_str = std::str::from_utf8(asset.data.as_ref()).expect("Failed to decode template");
     let config = config::read_or_create_config()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let mut tera = Tera::default();
-    tera.add_raw_template("index.html.tera", template_str)
+    tera.add_raw_template("index.html", template_str)
         .expect("Failed to load template");
 
     let mut context = Context::new();
@@ -42,7 +41,7 @@ async fn index() -> actix_web::Result<HttpResponse> {
     );
 
     let rendered = tera
-        .render("index.html.tera", &context)
+        .render("index.html", &context)
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     Ok(HttpResponse::Ok().content_type("text/html").body(rendered))
@@ -73,7 +72,6 @@ fn create_tera_instance() -> Result<Tera, actix_web::Error> {
             .expect("Failed to load template");
     }
 
-    tera.autoescape_on(vec!["html", ".html.tera"]);
     Ok(tera)
 }
 
@@ -100,7 +98,6 @@ async fn main() -> Result<()> {
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::resource("/static/htmx.min.js").route(web::get().to(htmx_js)))
             .service(web::resource("/static/style.css").route(web::get().to(styles)))
-            .service(fs::Files::new("/static", "./static"))
             .configure(handlers::config)
     })
     .bind(&host_bind)?
