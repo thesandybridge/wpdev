@@ -1,5 +1,5 @@
 use actix_cors::Cors;
-use actix_files as fs;
+use actix_web::middleware::Logger;
 use actix_web::{web, App, Error, HttpResponse, HttpServer};
 use anyhow::Result;
 use rust_embed::RustEmbed;
@@ -7,7 +7,7 @@ use serde::Serialize;
 use tera::{Context, Tera};
 use wpdev_core::config;
 
-mod api;
+mod handlers;
 use env_logger;
 
 #[derive(Serialize)]
@@ -24,14 +24,14 @@ struct TemplateAssets;
 struct StaticAssets;
 
 async fn index() -> actix_web::Result<HttpResponse> {
-    let asset = TemplateAssets::get("index.html.tera").expect("Template not found");
+    let asset = TemplateAssets::get("index.html").expect("Template not found");
     let template_str = std::str::from_utf8(asset.data.as_ref()).expect("Failed to decode template");
     let config = config::read_or_create_config()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let mut tera = Tera::default();
-    tera.add_raw_template("index.html.tera", template_str)
+    tera.add_raw_template("index.html", template_str)
         .expect("Failed to load template");
 
     let mut context = Context::new();
@@ -41,7 +41,7 @@ async fn index() -> actix_web::Result<HttpResponse> {
     );
 
     let rendered = tera
-        .render("index.html.tera", &context)
+        .render("index.html", &context)
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     Ok(HttpResponse::Ok().content_type("text/html").body(rendered))
@@ -61,6 +61,20 @@ async fn styles() -> Result<HttpResponse, Error> {
         .body(asset.data.into_owned()))
 }
 
+fn create_tera_instance() -> Result<Tera, actix_web::Error> {
+    let mut tera = Tera::default();
+
+    for file in TemplateAssets::iter() {
+        let asset = TemplateAssets::get(&file).expect(&format!("Template {} not found", file));
+        let template_str =
+            std::str::from_utf8(asset.data.as_ref()).expect("Failed to decode template");
+        tera.add_raw_template(&file, template_str)
+            .expect("Failed to load template");
+    }
+
+    Ok(tera)
+}
+
 #[actix_web::main]
 async fn main() -> Result<()> {
     let config = config::read_or_create_config().await?;
@@ -68,6 +82,7 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level))
         .init();
     let cors_allowed_origin = format!("http://{}", host_bind);
+    let tera = create_tera_instance().expect("Failed to create Tera instance");
     HttpServer::new(move || {
         let cors = Cors::default()
             .allowed_origin(&cors_allowed_origin)
@@ -77,43 +92,13 @@ async fn main() -> Result<()> {
             .max_age(3600);
 
         App::new()
+            .app_data(web::Data::new(tera.clone()))
             .wrap(cors)
+            .wrap(Logger::default())
             .service(web::resource("/").route(web::get().to(index)))
-            .service(web::resource("/list_all_instances").route(web::get().to(api::inspect_all)))
-            .service(
-                web::resource("/list_instance/{id}").route(web::get().to(api::inspect_instance)),
-            )
-            .service(web::resource("/create_instance").route(web::post().to(api::create_instance)))
-            .service(
-                web::resource("/delete_instances")
-                    .route(web::delete().to(api::delete_all_instances)),
-            )
-            .service(
-                web::resource("/delete_instance/{id}")
-                    .route(web::delete().to(api::delete_instance)),
-            )
-            .service(
-                web::resource("/start_instance/{id}").route(web::post().to(api::start_instance)),
-            )
-            .service(web::resource("/stop_instance/{id}").route(web::post().to(api::stop_instance)))
-            .service(
-                web::resource("/restart_instance/{id}")
-                    .route(web::post().to(api::restart_instance)),
-            )
-            .service(
-                web::resource("/start_all_instances")
-                    .route(web::post().to(api::start_all_instances)),
-            )
-            .service(
-                web::resource("/stop_all_instances").route(web::post().to(api::stop_all_instances)),
-            )
-            .service(
-                web::resource("/restart_all_instances")
-                    .route(web::post().to(api::restart_all_instances)),
-            )
             .service(web::resource("/static/htmx.min.js").route(web::get().to(htmx_js)))
             .service(web::resource("/static/style.css").route(web::get().to(styles)))
-            .service(fs::Files::new("/static", "./static"))
+            .configure(handlers::config)
     })
     .bind(&host_bind)?
     .run()
