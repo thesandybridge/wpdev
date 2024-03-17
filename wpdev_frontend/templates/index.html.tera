@@ -48,12 +48,6 @@
     </div>
 </div>
 
-<script>
-    htmx.config.debug = true;
-    htmx.config.logger = console.log.bind(console);
-</script>
-
-
 </body>
 </html>
 
