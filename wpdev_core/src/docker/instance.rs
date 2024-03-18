@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::fs;
 
-use crate::config::{self, read_or_create_config};
+use crate::config::{self};
 use crate::docker::config::{
     configure_adminer_container, configure_mysql_container, configure_nginx_container,
     configure_wordpress_container,
@@ -103,7 +103,7 @@ impl Instance {
         instance_label: &str,
         user_env_vars: ContainerEnvVars,
     ) -> Result<Self> {
-        let config = config::read_or_create_config().await?;
+        let instance_dir = config::get_instance_dir().await?;
         let home_dir =
             dirs::home_dir().ok_or_else(|| AnyhowError::msg("Home directory not found"))?;
 
@@ -125,9 +125,8 @@ impl Instance {
         labels.insert("nginx_port".to_string(), nginx_port_str);
         labels.insert("adminer_port".to_string(), adminer_port_str);
 
-        let instance_path = home_dir.join(PathBuf::from(format!(
-            "{}/{}-{}",
-            &config.custom_root,
+        let instance_path = instance_dir.join(PathBuf::from(format!(
+            "{}-{}",
             crate::NETWORK_NAME,
             instance_label
         )));
@@ -151,15 +150,9 @@ impl Instance {
         )
         .await?;
 
-        let wordpress_data = config::parse_instance_data(
-            &env_vars,
-            &nginx_port,
-            &adminer_port,
-            &config,
-            &home_dir,
-            &instance_label,
-        )
-        .await?;
+        let wordpress_data =
+            config::parse_instance_data(&env_vars, &nginx_port, &adminer_port, &instance_label)
+                .await?;
 
         let mut instance = Instance {
             uuid: format!("{}-{}", crate::NETWORK_NAME, instance_label.to_string()),
@@ -172,7 +165,7 @@ impl Instance {
             wordpress_data: Some(wordpress_data),
         };
 
-        config::generate_wpcli_config(&config, instance_label, &home_dir).await?;
+        config::generate_wpcli_config(&instance_dir, instance_label, &home_dir).await?;
 
         let containers = vec![
             (mysql_options, "mysql"),
@@ -529,14 +522,10 @@ impl Instance {
 
 async fn purge_instances(instance: InstanceSelection) -> Result<()> {
     info!("Starting to purge instances");
-    let config = read_or_create_config()
-        .await
-        .context("Failed to read config")?;
-    let home_dir = dirs::home_dir().context("Failed to find home directory")?;
-    let config_dir = home_dir.join(&config.custom_root);
+    let instance_dir = config::get_instance_dir().await?;
     let docker = Docker::connect_with_defaults().context("Failed to connect to Docker")?;
 
-    if !config_dir.exists() {
+    if !instance_dir.exists() {
         info!("Instance directory not found");
         return Ok(());
     }
@@ -544,7 +533,7 @@ async fn purge_instances(instance: InstanceSelection) -> Result<()> {
     match instance {
         InstanceSelection::All => {
             info!("Pruning all instances");
-            let p = &config_dir;
+            let p = &instance_dir;
             let path = p.to_str().context("Instance directory not found")?;
             let networks = docker
                 .list_networks::<String>(None)
@@ -578,7 +567,7 @@ async fn purge_instances(instance: InstanceSelection) -> Result<()> {
         }
         InstanceSelection::One(instance_uuid) => {
             info!("Removing instance: {}", instance_uuid);
-            let p = &config_dir;
+            let p = &instance_dir;
             let path = p.to_str().context("Instance directory not found")?;
             let instance_path = format!("{}/{}", path, instance_uuid);
             if !PathBuf::from(&instance_path).exists() {
