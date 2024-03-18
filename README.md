@@ -101,7 +101,7 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 
 ## Usage 💻
 
-> !IMPORTANT
+> [!IMPORTANT]
 > Running wpdev for the first time will be slow as it fetches the required
 > docker images. Once the images have been pulled subsequent runs will be
 > much faster.
@@ -136,7 +136,7 @@ During initial usage a directory will be made in your OS config directory:
 | macOS   | `$HOME/Library/Application Support/wpdev`              | `/Users/Alice/Library/Application Support/wpdev`           |
 | Windows | `{FOLDERID_RoamingAppData}\wpdev`                       | `C:\Users\Alice\AppData\Roaming\wpdev`                     |
 
-> !TIP
+> [!TIP]
 > This path will also be where each WordPress site will be installed and managed.
 > During initial setup the config directory `wpdev` is created and when a site is
 > created it gets added to `wpdev/instances`. We generate a UUID for the site
@@ -150,7 +150,8 @@ Some of these are for debugging purposes, however, the goal of wpdev is to be
 highly configurable and dev focused. I want users to be able to modify and
 change whatever they want, so I plan on making the images more modular and each
 setup more configurable. Currently the container setup is hardcoded.
-```toml
+
+```txt
 custom_root: "OS_CONFIG/wpdev",
 docker_images: [ # mainly for debugging
 "wordpress:latest",
@@ -174,12 +175,12 @@ directory. This is also configurable and is how the webapp pulls data, wpdev is
 entirely file/directory based so we do not log info to a database. Instances are
 managed through config files and each site config.
 
-> !NOTE
+> [!NOTE]
 > The WordPress options are placeholders, we do not run an install script
 > during container setup. This is part of our future plans though. So for now
 > ignore the first 5 items in the field below.
 
-```toml
+```txt
 admin_user: "",
 admin_password: "",
 admin_email: "",
