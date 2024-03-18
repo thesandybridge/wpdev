@@ -36,6 +36,7 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
                 info!("Custom root not found in config, setting to default value");
                 config.custom_root = Some(default_config_dir);
             }
+            pull_docker_images_from_config(&config).await?;
             info!("Config file read successfully");
             Ok(config)
         }
@@ -45,6 +46,7 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
                 custom_root: Some(config_dir.join("instances")),
                 ..AppConfig::default()
             };
+            pull_docker_images_from_config(&config).await?;
             info!("Writing default config to {:?}", config_path);
             Ok(config)
         }
@@ -69,7 +71,7 @@ pub(crate) async fn get_instance_dir() -> Result<PathBuf> {
 }
 
 pub async fn image_exists(image_name: &str) -> Result<bool> {
-    info!("Checking if image {} exists locally", image_name);
+    info!("Checking if image {} has been pulled...", image_name);
     let docker = Docker::connect_with_defaults()?;
     let options = Some(ListImagesOptions::<String> {
         ..Default::default()
@@ -84,7 +86,7 @@ pub async fn image_exists(image_name: &str) -> Result<bool> {
     }))
 }
 
-async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
+async fn pull_docker_image(image_name: &str) -> Result<()> {
     info!("Pulling image {} if it doesn't exist locally", image_name);
     let image = image_exists(image_name).await?;
     if !image {
@@ -110,20 +112,16 @@ async fn pull_docker_image_if_not_exists(image_name: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn pull_docker_images_from_config() -> Result<(), AnyhowError> {
+pub async fn pull_docker_images_from_config(config: &AppConfig) -> Result<()> {
     info!("Pulling docker images from config");
-    let config = read_or_create_config()
-        .await
-        .context("Failed to read config")?;
-
     if config.docker_images.is_empty() {
         info!("No images to pull");
         return Ok(());
     }
 
-    for image_name in config.docker_images {
+    for image_name in config.docker_images.iter() {
         info!("Pulling image {}", image_name);
-        pull_docker_image_if_not_exists(&image_name)
+        pull_docker_image(&image_name)
             .await
             .context(format!("Failed to pull image {}", image_name))?;
     }

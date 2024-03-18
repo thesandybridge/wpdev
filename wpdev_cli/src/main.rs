@@ -72,7 +72,6 @@ async fn main() -> Result<()> {
         .context("Failed to read or create config")?;
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.log_level))
         .init();
-    config::pull_docker_images_from_config().await?;
     let cli = Cli::parse();
     match cli.command {
         Commands::List(args) => {
