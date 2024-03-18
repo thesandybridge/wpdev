@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 
 pub mod config;
 pub mod docker;
@@ -15,7 +16,7 @@ pub const WORDPRESS_CLI_IMAGE: &str = "wordpress:cli";
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
-    pub custom_root: String,
+    pub custom_root: Option<PathBuf>,
     pub docker_images: Vec<String>,
     pub log_level: String,
     pub enable_frontend: bool,
@@ -32,7 +33,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
-            custom_root: String::from(".config/wpdev/instances"),
+            custom_root: None,
             docker_images: vec![
                 WORDPRESS_IMAGE.to_string(),
                 NGINX_IMAGE.to_string(),

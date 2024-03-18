@@ -18,27 +18,54 @@ use crate::AppConfig;
 
 pub async fn read_or_create_config() -> Result<crate::AppConfig> {
     info!("Reading or creating config file");
-    let config_dir =
-        dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Failed to find config directory"))?;
-    let config_dir = config_dir.join("wpdev");
+    let config_dir = get_config_dir().await?;
     fs::create_dir_all(&config_dir)
         .await
         .context("Failed to create config directory")?;
 
     let config_path = config_dir.join("config.toml");
+    let default_config_dir = config_dir.join("instances");
 
     match fs::read_to_string(&config_path).await {
         Ok(contents) => {
             info!("Reading config file from {:?}", config_path);
-            let config: AppConfig = toml::from_str(&contents)
+            let mut config: AppConfig = toml::from_str(&contents)
                 .with_context(|| format!("Failed to parse config file at {:?}", config_path))?;
+            info!("Checking if custom root is set");
+            if config.custom_root.is_none() {
+                info!("Custom root not found in config, setting to default value");
+                config.custom_root = Some(default_config_dir);
+            }
+            info!("Config file read successfully");
             Ok(config)
         }
         Err(_) => {
             info!("Creating new config file at {:?}", config_path);
-            Ok(AppConfig::default())
+            let config = AppConfig {
+                custom_root: Some(config_dir.join("instances")),
+                ..AppConfig::default()
+            };
+            info!("Writing default config to {:?}", config_path);
+            Ok(config)
         }
     }
+}
+
+pub(crate) async fn get_config_dir() -> Result<PathBuf> {
+    info!("Getting root directory");
+    let config_dir = dirs::config_dir().context("Failed to find home directory")?;
+    let config_dir = config_dir.join("wpdev");
+    Ok(config_dir)
+}
+
+pub(crate) async fn get_instance_dir() -> Result<PathBuf> {
+    info!("Getting instance directory");
+    let config = read_or_create_config().await?;
+    let instance_dir = config
+        .custom_root
+        .ok_or_else(|| AnyhowError::msg("Custom root not found"))?;
+    info!("Instance directory: {:?}", instance_dir);
+    Ok(instance_dir)
 }
 
 pub async fn image_exists(image_name: &str) -> Result<bool> {
@@ -272,14 +299,16 @@ server {{
 }
 
 pub(crate) async fn generate_wpcli_config(
-    config: &crate::AppConfig,
+    config: &PathBuf,
     instance_label: &str,
     home_dir: &PathBuf,
 ) -> Result<(), AnyhowError> {
     info!("Generating wp-cli config");
     let instance_dir = home_dir.join(format!(
         "{}/{}-{}/",
-        &config.custom_root,
+        &config
+            .to_str()
+            .ok_or_else(|| AnyhowError::msg("Config directory not found"))?,
         crate::NETWORK_NAME,
         instance_label
     ));
@@ -330,13 +359,9 @@ define('WP_DEBUG', false);
 
 pub async fn read_instance_data_from_toml(instance_label: &str) -> Result<InstanceData> {
     info!("Reading instance data from toml");
-    let config = read_or_create_config()
-        .await
-        .context("Failed to read config")?;
-    let home_dir = dirs::home_dir().context("Failed to find home directory")?;
-    let instance_dir = home_dir
-        .join(&config.custom_root)
-        .join(format!("{}/instance.toml", instance_label));
+    let instance_config_dir = get_instance_dir().await?;
+    let instance_dir = instance_config_dir.join(format!("{}/instance.toml", instance_label));
+    info!("Reading instance data from {:?}", instance_dir);
 
     if !instance_dir.exists() {
         error!("Instance file not found at {:?}", instance_dir);
@@ -363,14 +388,13 @@ pub(crate) async fn parse_instance_data(
     env_vars: &EnvVars,
     nginx_port: &u32,
     adminer_port: &u32,
-    config: &crate::AppConfig,
-    home_dir: &PathBuf,
     instance_label: &str,
 ) -> Result<InstanceData> {
     info!("Parsing instance data");
-    let instance_dir = home_dir.join(format!(
-        "{}/{}-{}/instance.toml",
-        &config.custom_root,
+    let instance_config_dir = get_instance_dir().await?;
+    let config = read_or_create_config().await?;
+    let instance_dir = instance_config_dir.join(format!(
+        "{}-{}/instance.toml",
         crate::NETWORK_NAME,
         instance_label
     ));
