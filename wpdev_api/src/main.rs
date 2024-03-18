@@ -3,8 +3,6 @@ extern crate rocket;
 use rocket::http::Method;
 use rocket_cors::{AllowedOrigins, Cors, CorsOptions};
 
-use wpdev_core::config;
-
 mod routes;
 
 fn cors() -> Cors {
@@ -26,12 +24,6 @@ fn cors() -> Cors {
 
 #[launch]
 fn rocket() -> _ {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-
-    if let Err(err) = rt.block_on(config::pull_docker_images_from_config()) {
-        eprintln!("Error pulling Docker images: {:?}", err);
-        std::process::exit(1);
-    }
     rocket::build()
         .attach(cors())
         .mount("/api", routes::routes())
