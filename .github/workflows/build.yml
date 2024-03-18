@@ -38,8 +38,6 @@ jobs:
             target/release/wpdev_api_amd64
             target/release/wpdev_cli_amd64
             target/release/wpdev_frontend_amd64
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-win:
     runs-on: windows-latest
@@ -66,8 +64,6 @@ jobs:
             target/release/wpdev_api.exe
             target/release/wpdev_cli.exe
             target/release/wpdev_frontend.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-mac:
     runs-on: macos-latest
@@ -100,5 +96,3 @@ jobs:
             target/release/wpdev_api_darwin
             target/release/wpdev_cli_darwin
             target/release/wpdev_frontend_darwin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
