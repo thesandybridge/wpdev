@@ -1,0 +1,104 @@
+name: wpdev build
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build wpdev_api
+        run: |
+          cargo build --release -p wpdev_api
+          strip target/release/wpdev_api
+          mv target/release/wpdev_api target/release/wpdev_api_amd64
+
+      - name: Build wpdev_cli
+        run: |
+          cargo build --release -p wpdev_cli
+          strip target/release/wpdev_cli
+          mv target/release/wpdev_cli target/release/wpdev_cli_amd64
+
+      - name: Build wpdev_frontend
+        run: |
+          cargo build --release -p wpdev_frontend
+          strip target/release/wpdev_frontend
+          mv target/release/wpdev_frontend target/release/wpdev_frontend_amd64
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            target/release/wpdev_api_amd64
+            target/release/wpdev_cli_amd64
+            target/release/wpdev_frontend_amd64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build wpdev_api
+        run: cargo build --release -p wpdev_api
+        shell: powershell
+
+      - name: Build wpdev_cli
+        run: cargo build --release -p wpdev_cli
+        shell: powershell
+
+      - name: Build wpdev_frontend
+        run: cargo build --release -p wpdev_frontend
+        shell: powershell
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/wpdev_api.exe
+            target/release/wpdev_cli.exe
+            target/release/wpdev_frontend.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build wpdev_api
+        run: |
+          cargo build --release -p wpdev_api
+          strip target/release/wpdev_api
+          mv target/release/wpdev_api target/release/wpdev_api_darwin
+
+      - name: Build wpdev_cli
+        run: |
+          cargo build --release -p wpdev_cli
+          strip target/release/wpdev_cli
+          mv target/release/wpdev_cli target/release/wpdev_cli_darwin
+
+      - name: Build wpdev_frontend
+        run: |
+          cargo build --release -p wpdev_frontend
+          strip target/release/wpdev_frontend
+          mv target/release/wpdev_frontend target/release/wpdev_frontend_darwin
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/wpdev_api_darwin
+            target/release/wpdev_cli_darwin
+            target/release/wpdev_frontend_darwin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
