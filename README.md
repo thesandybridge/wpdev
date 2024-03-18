@@ -113,8 +113,16 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 The roadmap outlines the planned improvements and major features that are in the pipeline for wpdev. This list is subject to change and will be updated as the project evolves.
 
 - [x] Rebuild Frontend with Actix-web/HTMX: Transition the current Next.js-based frontend to Actix-web/HTMX to enhance performance and maintainability.
-- [ ] Add Customization Framework: Implement a framework to configure the frontend and individual WordPress sites, allowing for greater flexibility and user personalization.
-- [ ] Add logging and more config customization.
+- [x] Add logging and more config customization.
+- [ ] Add logging to the webapp UI and implement health checks for each
+instance.
+- [ ] Add options for updating the instance.toml from the webapp, including an
+option to generate the instance.toml via an interactive form.
+- [ ] Build a cleaner UI that is more feature rich and user friendly with theme
+  options, plugin management, and more.
+- [ ] Add support for changing PHP and MySQL versions as well managing WordPress
+  updates directly from the webapp.
+- [ ] Create documenation and Wiki for wpdev.
 
 Please note that this roadmap is indicative and might evolve based on the project's progress, community feedback, and contributor availability.
 
