@@ -36,13 +36,13 @@ cd wpdev
 2. Build the Rust project:
 
 ```bash
-cargo build -p wpdev_frontend
+cargo build --bin wpdev_frontend
 ```
 
 3. Run the web server:
 
 ```bash
-cargo run -p wpdev_frontend
+cargo run --bin wpdev_frontend
 ```
 
 4. Open the WebApp in your browser:
@@ -62,13 +62,13 @@ cd wpdev
 2. Build the Rust project:
 
 ```bash
-cargo build -p wpdev_api
+cargo build --bin wpdev_api
 ```
 
 3. Run the API server:
 
 ```bash
-cargo run -p wpdev_api
+cargo run --bin wpdev_api
 ```
 
 ### CLI Tool
@@ -82,7 +82,7 @@ cd wpdev
 2. Build the CLI tool:
 
 ```bash
-cargo build -p wpdev_cli --release
+cargo build --bin wpdev_cli --release
 ```
 
 3. Link the binary for easy access:
@@ -113,8 +113,16 @@ ln -s target/release/wpdev_cli /usr/local/bin/wpdev
 The roadmap outlines the planned improvements and major features that are in the pipeline for wpdev. This list is subject to change and will be updated as the project evolves.
 
 - [x] Rebuild Frontend with Actix-web/HTMX: Transition the current Next.js-based frontend to Actix-web/HTMX to enhance performance and maintainability.
-- [ ] Add Customization Framework: Implement a framework to configure the frontend and individual WordPress sites, allowing for greater flexibility and user personalization.
-- [ ] Add logging and more config customization.
+- [x] Add logging and more config customization.
+- [ ] Add logging to the webapp UI and implement health checks for each
+instance.
+- [ ] Add options for updating the instance.toml from the webapp, including an
+option to generate the instance.toml via an interactive form.
+- [ ] Build a cleaner UI that is more feature rich and user friendly with theme
+  options, plugin management, and more.
+- [ ] Add support for changing PHP and MySQL versions as well managing WordPress
+  updates directly from the webapp.
+- [ ] Create documenation and Wiki for wpdev.
 
 Please note that this roadmap is indicative and might evolve based on the project's progress, community feedback, and contributor availability.
 
