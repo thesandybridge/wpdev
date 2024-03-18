@@ -36,13 +36,13 @@ cd wpdev
 2. Build the Rust project:
 
 ```bash
-cargo build -p wpdev_frontend
+cargo build --bin wpdev_frontend
 ```
 
 3. Run the web server:
 
 ```bash
-cargo run -p wpdev_frontend
+cargo run --bin wpdev_frontend
 ```
 
 4. Open the WebApp in your browser:
@@ -62,13 +62,13 @@ cd wpdev
 2. Build the Rust project:
 
 ```bash
-cargo build -p wpdev_api
+cargo build --bin wpdev_api
 ```
 
 3. Run the API server:
 
 ```bash
-cargo run -p wpdev_api
+cargo run --bin wpdev_api
 ```
 
 ### CLI Tool
@@ -82,7 +82,7 @@ cd wpdev
 2. Build the CLI tool:
 
 ```bash
-cargo build -p wpdev_cli --release
+cargo build --bin wpdev_cli --release
 ```
 
 3. Link the binary for easy access:
