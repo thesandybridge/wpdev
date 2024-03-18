@@ -36,6 +36,9 @@ pub async fn read_or_create_config() -> Result<crate::AppConfig> {
                 info!("Custom root not found in config, setting to default value");
                 config.custom_root = Some(default_config_dir);
             }
+            //TODO: Add a more performant method to check if images have been pulled.
+            // Currently the first time this runs it will block for a while until all images have
+            // been pulled.
             pull_docker_images_from_config(&config).await?;
             info!("Config file read successfully");
             Ok(config)
